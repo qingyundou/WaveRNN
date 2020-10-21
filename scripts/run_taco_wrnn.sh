@@ -54,7 +54,7 @@ hp_file=scripts/hparams_initGold.py
 # gold init / tf big BS
 hp_file=scripts/hparams_initGold_tuneBS.py
 # python train_tacotron.py --hp_file $hp_file
-python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
 
 
 ## debug
@@ -104,3 +104,15 @@ hp_file=scripts/hparams_af_online_tuneBS.py
 # python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
 
 
+# ------------------------------------------------- multipass
+# -------------------------------------------------
+
+hp_file=scripts/hparams_multipass.py
+# python train_tacotron_multipass.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+
+# pretrain tacotron_pass2
+hp_file=scripts/hparams_pass2.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention griffinlim

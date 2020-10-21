@@ -71,3 +71,18 @@ class Paths:
         return self.voc_checkpoints/f'{name}_optim.pyt'
 
 
+class Paths_multipass(Paths):
+    def __init__(self, data_path, voc_id, tts_id, pass_nb):
+        super().__init__(data_path, voc_id, tts_id)
+        
+        # Tactron/TTS Paths, overwrite some
+        self.tts_checkpoints = self.base/'checkpoints'/f'{tts_id}.tacotron'/f'{pass_nb}'
+        self.tts_latest_weights = self.tts_checkpoints/'latest_weights.pyt'
+        self.tts_latest_optim = self.tts_checkpoints/'latest_optim.pyt'
+        # self.tts_output = self.base/'model_outputs'/f'{tts_id}.tacotron'
+        # self.tts_step = self.tts_checkpoints/'step.npy'
+        # self.tts_log = self.tts_checkpoints/'log.txt'
+        # self.tts_attention = self.tts_checkpoints/'attention'
+        # self.tts_mel_plot = self.tts_checkpoints/'mel_plots'
+
+        self.create_paths()

@@ -86,10 +86,28 @@ class __HParams:
 
         self._configured = True
 
+        ### qd212: fix compatibility
+        # self.fix_compatibility()
+
     def is_configured(self):
         return self._configured
 
+    ### qd212: fix compatibility, as new attrs are added
+    def fix_compatibility(self):
+        new_attr_dct = {'mode': 'teacher_forcing', 
+        'test_sentences_file': 'test_sentences/sentences.txt'}
+        for key, value in new_attr_dct.items():
+            if not hasattr(self, key): setattr(self, key, value)
+
+# def make_hp_compatible(hparams):
+#     new_attr_dct = {'save_mel': False}
+#     for key, value in new_attr_dct.items():
+#         if not hasattr(hparams, key): setattr(hparams, key, value)
+#     return hparams
+
 hparams = __HParams()
+# hparams.fix_compatibility()
+# hparams = make_hp_compatible(hparams)
 
 
 def _import_from_file(name, path: Path):
