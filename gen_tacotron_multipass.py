@@ -3,7 +3,7 @@ from models.fatchord_version import WaveRNN
 from utils import hparams as hp
 from utils.text.symbols import symbols
 from utils.paths import Paths, Paths_multipass
-from models.tacotron import Tacotron, Tacotron_pass2
+from models.tacotron import Tacotron, Tacotron_pass2, Tacotron_pass1
 import argparse
 from utils.text import text_to_sequence
 from utils.display import save_attention, simple_table, save_spectrogram
@@ -100,7 +100,8 @@ if __name__ == "__main__":
     print('\nInitialising Tacotron Model...\n')
 
     # Instantiate Tacotron Model
-    tts_model = Tacotron(embed_dims=hp.tts_embed_dims,
+    Taco = Tacotron_pass1 if 's1' in hp.tts_pass2_input_train else Tacotron
+    tts_model = Taco(embed_dims=hp.tts_embed_dims,
                          num_chars=len(symbols),
                          encoder_dims=hp.tts_encoder_dims,
                          decoder_dims=hp.tts_decoder_dims,
@@ -112,10 +113,23 @@ if __name__ == "__main__":
                          postnet_K=hp.tts_postnet_K,
                          num_highways=hp.tts_num_highways,
                          dropout=hp.tts_dropout,
-                         stop_threshold=hp.tts_stop_threshold).to(device)
+                         stop_threshold=hp.tts_stop_threshold,
+                         mode=hp.tts_mode_gen_pass1,).to(device)
+
+    # tts_model.load(hp.tts_init_weights_path)
+    # for i, (name, param) in enumerate(tts_model.named_parameters()):
+    #     print('tts_model before', name, param.data.size())
+    #     print(param.data[0,:3]) if len(param.data.size())>1 else print(param.data[:3])
+    #     if i>1: break
 
     tts_load_path = tts_weights if tts_weights else paths.tts_latest_weights
     tts_model.load(tts_load_path)
+
+    # for i, (name, param) in enumerate(tts_model.named_parameters()):
+    #     print('tts_model after', name, param.data.size())
+    #     print(param.data[0,:3]) if len(param.data.size())>1 else print(param.data[:3])
+    #     if i>1: break
+    # import pdb; pdb.set_trace()
 
     tts_model_pass2 = Tacotron_pass2(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
@@ -131,7 +145,9 @@ if __name__ == "__main__":
                      dropout=hp.tts_dropout,
                      stop_threshold=hp.tts_stop_threshold,
                      mode=hp.tts_mode_gen_pass2,
-                     encoder_reduction_factor=hp.tts_encoder_reduction_factor).to(device)
+                     encoder_reduction_factor=hp.tts_encoder_reduction_factor,
+                     encoder_reduction_factor_s=hp.tts_encoder_reduction_factor_s,
+                     pass2_input=hp.tts_pass2_input_train).to(device)
 
     tts_load_path = tts_weights if tts_weights else paths_pass2.tts_latest_weights
     tts_model_pass2.load(tts_load_path)
@@ -145,7 +161,8 @@ if __name__ == "__main__":
 
     if args.vocoder == 'wavernn':
         voc_k = voc_model.get_step() // 1000
-        tts_k = tts_model.get_step() // 1000
+        # tts_k = tts_model.get_step() // 1000
+        tts_k = tts_model_pass2.get_step() // 1000
 
         simple_table([('Tacotron', str(tts_k) + 'k'),
                     ('r', tts_model.r),
@@ -156,7 +173,9 @@ if __name__ == "__main__":
                     ('Overlap Samples', overlap if batched else 'N/A')])
 
     elif args.vocoder == 'griffinlim':
-        tts_k = tts_model.get_step() // 1000
+        # tts_k = tts_model.get_step() // 1000
+        tts_k = tts_model_pass2.get_step() // 1000
+
         simple_table([('Tacotron', str(tts_k) + 'k'),
                     ('r', tts_model.r),
                     ('Vocoder Type', 'Griffin-Lim'),
@@ -168,21 +187,29 @@ if __name__ == "__main__":
     for i, x in enumerate(inputs, 1):
 
         print(f'\n| Generating {i}/{len(inputs)}')
-        _, m, attention = tts_model.generate(x)
+        if 's1' in hp.tts_pass2_input_train:
+            _, m, attention, s = tts_model.generate(x)
+        else:
+            _, m, attention = tts_model.generate(x)
         # print(m)
         # print(m.size())
         # print(m.unsqueeze().size())
         # import pdb; pdb.set_trace()
 
-        if hp.tts_pass2_input_gen=='y1':
+        if 'x' not in hp.tts_pass2_input_gen:
             x = [0 for x_i in x]
-        elif hp.tts_pass2_input_gen=='x':
+        if 'y1' not in hp.tts_pass2_input_gen:
             m = m * 0
-        elif hp.tts_pass2_input_gen=='xNy1':
-            pass
+            if 's1' in hp.tts_pass2_input_train: s = s * 0
 
         # m = torch.tensor(m).unsqueeze(0).to(device)
-        _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device))
+        # _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device))
+
+        if 's1' in hp.tts_pass2_input_train:
+            _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device), s)
+        else:
+            _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device))
+
         # Fix mel spectrogram scaling to be from 0 to 1
         m = (m + 4) / 8
         np.clip(m, 0, 1, out=m)

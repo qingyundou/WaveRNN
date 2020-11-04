@@ -7,7 +7,8 @@ data_path = 'data/'
 
 # model ids are separate - that way you can use a new tts with an old wavernn and vice versa
 # NB: expect undefined behaviour if models were trained on different DSP settings
-exp_id = 'lj_af_offline'
+exp_id = 'lj_af_asup'
+# exp_id = 'lj_af_offline'
 voc_model_id = exp_id + ''
 tts_model_id = exp_id + ''
 

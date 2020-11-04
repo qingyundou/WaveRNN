@@ -6,7 +6,7 @@ from utils.display import *
 from utils.dataset import get_tts_datasets
 from utils.text.symbols import symbols
 from utils.paths import Paths, Paths_multipass
-from models.tacotron import Tacotron, Tacotron_pass2
+from models.tacotron import Tacotron, Tacotron_pass2, Tacotron_pass1
 import argparse
 from utils import data_parallel_workaround, set_global_seeds
 import os
@@ -45,7 +45,7 @@ def main():
     if not args.force_cpu and torch.cuda.is_available():
         device = torch.device('cuda')
         for session in hp.tts_schedule:
-            _, _, _, batch_size = session
+            _, _, _, batch_size, *extension = session
             if batch_size % torch.cuda.device_count() != 0:
                 raise ValueError('`batch_size` must be evenly divisible by n_gpus!')
     else:
@@ -54,7 +54,8 @@ def main():
 
     # Instantiate Tacotron Model & Tacotron_pass2 Model
     print('\nInitialising Tacotron Model...\n')
-    model = Tacotron(embed_dims=hp.tts_embed_dims,
+    Taco = Tacotron_pass1 if 's1' in hp.tts_pass2_input_train else Tacotron
+    model = Taco(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
                      encoder_dims=hp.tts_encoder_dims,
                      decoder_dims=hp.tts_decoder_dims,
@@ -83,7 +84,9 @@ def main():
                      dropout=hp.tts_dropout,
                      stop_threshold=hp.tts_stop_threshold,
                      mode=hp.tts_mode_train_pass2,
-                     encoder_reduction_factor=hp.tts_encoder_reduction_factor).to(device)
+                     encoder_reduction_factor=hp.tts_encoder_reduction_factor,
+                     encoder_reduction_factor_s=hp.tts_encoder_reduction_factor_s,
+                     pass2_input=hp.tts_pass2_input_train).to(device)
 
     # tmp = model.named_parameters()
     # names_p1 = [x[0] for x in tmp]
@@ -141,7 +144,8 @@ def main():
         for i, session in enumerate(hp.tts_schedule):
             current_step = model.get_step()
 
-            r, lr, max_step, batch_size = session
+            r, lr, max_step, batch_size, *extension = session
+            if extension: hp.tts_extension_dct['input_prob_lst'] = extension[0]
 
             training_steps = max_step - current_step
 
@@ -185,6 +189,23 @@ def main():
     print('\n\nYou can now train WaveRNN on GTA features - use python train_wavernn.py --gta\n')
 
 
+def prepare_pass2_input(x, y_p1, s_p1, input_prob_lst):
+    # unpack the flexible lst, if it is not empty
+    s_p1 = s_p1[0] if s_p1 else None
+
+    if sum(input_prob_lst)!=1: print(f'qd212 warning: input_prob_lst {input_prob_lst} doesnt sum to 1')
+    p_x, p_y, p_both = [float(p) for p in input_prob_lst]
+
+    if np.random.uniform(high=1.0)<p_both:
+        pass
+    elif np.random.uniform(high=p_both)<p_x:
+        x = x * 0
+    else:
+        y_p1 = y_p1 * 0
+        if s_p1 is not None: s_p1 = s_p1 * 0
+    return x, y_p1, s_p1
+
+
 def tts_train_loop(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, 
     train_set, lr, train_steps, attn_example, hp=None, model_tf=None):
     if hp.mode=='teacher_forcing':
@@ -226,21 +247,15 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
             if device.type == 'cuda' and torch.cuda.device_count() > 1:
                 m1_hat, m2_hat, attention = data_parallel_workaround(model, x, m)
             else:
-                with torch.no_grad(): _, m2_hat, attention = model(x, m)
+                # pass1
+                with torch.no_grad(): _, m2_hat, attention, *s_p1 = model(x, m)
 
-                if hp.tts_pass2_input_train=='y1':
-                    x = x * 0
-                elif hp.tts_pass2_input_train in ['x_y1', 'x_y1_xNy1']:
-                    if hp.tts_pass2_input_train=='x_y1' or np.random.randint(2):
-                        mask = np.random.randint(2)
-                        x = x * mask
-                        m2_hat = m2_hat * (1-mask)
-                elif hp.tts_pass2_input_train=='xNy1':
-                	pass
-                    # import pdb; pdb.set_trace()
+                # mask
+                x, m2_hat, s_p1 = prepare_pass2_input(x, m2_hat, s_p1, hp.tts_extension_dct['input_prob_lst'])
+                # import pdb; pdb.set_trace()
 
-                # m1_hat_p2, m2_hat_p2, attention_p2, attention_vc = model_pass2(x * 0, m, m)
-                m1_hat_p2, m2_hat_p2, attention_p2, attention_vc = model_pass2(x, m, m2_hat)
+                # pass 2
+                m1_hat_p2, m2_hat_p2, attention_p2, attention_vc = model_pass2(x, m, m2_hat, s_p1=s_p1)
 
             # print(x.size())
             # print(m.size())

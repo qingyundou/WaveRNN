@@ -137,3 +137,8 @@ def set_global_seeds(i):
     np.random.seed(i)
     import random
     random.seed(i)
+
+
+def smooth(d, eps = float(1e-10)):
+    u = 1.0 / float(d.size()[2])
+    return eps * u + (1-eps) * d
