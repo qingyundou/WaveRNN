@@ -407,7 +407,7 @@ class Tacotron(nn.Module):
                 attn_scores.append(scores)
         elif self.mode=='free_running':
             device = next(self.parameters()).device
-            mask = torch.ones([m.size(0)], device=device)
+            # mask = torch.ones([m.size(0)], device=device)
 
             for t in range(0, steps, self.r):
                 prenet_in = mel_outputs[-1][:, :, -1] if t > 0 else go_frame
@@ -415,9 +415,10 @@ class Tacotron(nn.Module):
                 self.decoder(encoder_seq, encoder_seq_proj, prenet_in,
                              hidden_states, cell_states, context_vec, t)
 
-                mask = mask * (mel_frames >= self.stop_threshold).int().float().prod(-1).prod(-1)
-                tmp = mel_frames * mask.unsqueeze(-1).unsqueeze(-1) + (-4) * (1-mask).unsqueeze(-1).unsqueeze(-1)
-                mel_outputs.append(tmp)
+                # mask = mask * (mel_frames >= self.stop_threshold).int().float().prod(-1).prod(-1)
+                # tmp = mel_frames * mask.unsqueeze(-1).unsqueeze(-1) + (-4) * (1-mask).unsqueeze(-1).unsqueeze(-1)
+                # mel_outputs.append(tmp)
+                mel_outputs.append(mel_frames)
                 attn_scores.append(scores)
                 # Stop the loop if silent frames present
                 if (mel_frames < self.stop_threshold).all() and t > 10: break
@@ -530,6 +531,14 @@ class Tacotron(nn.Module):
 
 # --------------------------------
 class Tacotron_pass1(Tacotron):
+    def __init__(self, embed_dims, num_chars, encoder_dims, decoder_dims, n_mels, fft_bins, postnet_dims,
+                 encoder_K, lstm_dims, postnet_K, num_highways, dropout, stop_threshold, mode='teacher_forcing', 
+                 fr_length_ratio=1):
+        super().__init__(embed_dims, num_chars, encoder_dims, decoder_dims, n_mels, fft_bins, postnet_dims,
+                 encoder_K, lstm_dims, postnet_K, num_highways, dropout, stop_threshold, mode=mode)
+        self.fr_length_ratio = fr_length_ratio
+
+
     def forward(self, x, m, generate_gta=False, generate_fr=False, attn_ref=None):
         device = next(self.parameters()).device  # use same device as parameters
 
@@ -630,17 +639,18 @@ class Tacotron_pass1(Tacotron):
         elif self.mode=='free_running':
             device = next(self.parameters()).device
             # mask = torch.ones([m.size(0)], device=device)
-            mask = torch.ones([encoder_seq.size(0)], device=device)
+            # mask = torch.ones([encoder_seq.size(0)], device=device)
 
-            for t in range(0, steps, self.r):
+            for t in range(0, int(steps*self.fr_length_ratio), self.r):
                 prenet_in = mel_outputs[-1][:, :, -1] if t > 0 else go_frame
                 mel_frames, scores, hidden_states, cell_states, context_vec = \
                 self.decoder(encoder_seq, encoder_seq_proj, prenet_in,
                              hidden_states, cell_states, context_vec, t)
 
-                mask = mask * (mel_frames >= self.stop_threshold).int().float().prod(-1).prod(-1)
-                tmp = mel_frames * mask.unsqueeze(-1).unsqueeze(-1) + (-4) * (1-mask).unsqueeze(-1).unsqueeze(-1)
-                mel_outputs.append(tmp)
+                # mask = mask * (mel_frames >= self.stop_threshold).int().float().prod(-1).prod(-1)
+                # tmp = mel_frames * mask.unsqueeze(-1).unsqueeze(-1) + (-4) * (1-mask).unsqueeze(-1).unsqueeze(-1)
+                # mel_outputs.append(tmp)
+                mel_outputs.append(mel_frames)
                 attn_scores.append(scores)
                 attn_hiddens.append(hidden_states[0].unsqueeze(-1))
                 # Stop the loop if silent frames present

@@ -55,6 +55,8 @@ hp_file=scripts/hparams_initGold.py
 hp_file=scripts/hparams_initGold_tuneBS.py
 # python train_tacotron.py --hp_file $hp_file
 # python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+# python gen_tacotron.py --hp_file $hp_file --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+
 
 
 ## debug
@@ -102,6 +104,8 @@ hp_file=scripts/hparams_af_online_kl_tune.py
 hp_file=scripts/hparams_af_online_tuneBS.py
 # python train_tacotron.py --hp_file $hp_file
 # python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+# python gen_tacotron.py --hp_file $hp_file --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+
 
 
 # ------------------------------------------------- multipass
@@ -111,7 +115,38 @@ hp_file=scripts/hparams_af_online_tuneBS.py
 hp_file=scripts/hparams_pass2.py
 # python train_tacotron_pass2.py --hp_file $hp_file
 # python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched
 # python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention griffinlim
+
+hp_file=scripts/hparams_pass2_init.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched
+tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_fixBestP1_BS100_stepD10_p1fr_re4_y1.tacotron/pass2/taco_step180K_weights.pyt
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_fixBestP1_BS100_stepD5_p1fr_re4_xAOy1s1.tacotron/pass2/taco_step160K_weights.pyt
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_pass2_init_dev.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention wavernn --voc_weights $voc_weights_gold --batched
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_BS32_stepD1_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step54K_weights.pyt
+tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_BS128_stepD4_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step184K_weights.pyt
+python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_pass2_init_gal.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_fixBestP1_GAL100.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step12K_weights.pyt
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_fixBestP1_GAL500.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step12K_weights.pyt
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL1.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step24K_weights.pyt
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL10.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step56K_weights.pyt
+tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL100.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step24K_weights.pyt
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+
 
 hp_file=scripts/hparams_multipass.py
 # python train_tacotron_multipass.py --hp_file $hp_file
@@ -127,6 +162,9 @@ hp_file=scripts/hparams_multipass_af_sched.py
 # python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention --save_mel wavernn --voc_weights $voc_weights_gold --batched
 
 hp_file=scripts/hparams_multipass_af_tune.py
-python train_tacotron_multipass.py --hp_file $hp_file
+# python train_tacotron_multipass.py --hp_file $hp_file
 # python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention --save_mel wavernn --voc_weights $voc_weights_gold --batched
 
+hp_file=scripts/hparams_multipass_switch.py
+# python train_tacotron_multipass.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention --save_mel wavernn --voc_weights $voc_weights_gold --batched

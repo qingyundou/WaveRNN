@@ -8,51 +8,85 @@ data_path = 'data/'
 ## hparams to tune
 tts_batch_size = 10 # 32 64 100
 tts_batch_acu = 10
-_tts_adjust_steps = False
-tts_encoder_reduction_factor = 2
-tts_pass2_input_train = 'y1' # 'y1' 'x_y1' 'x_y1c1'
+_tts_adjust_steps = True
+tts_encoder_reduction_factor = 4
+tts_encoder_reduction_factor_s = tts_encoder_reduction_factor // 2 # quick fix
+# tts_pass2_input_train = 'y1' # 'y1' 'x_y1' 'x_y1c1'
 
 # model ids are separate - that way you can use a new tts with an old wavernn and vice versa
 # NB: expect undefined behaviour if models were trained on different DSP settings
 # exp_id = f'mp_lj_pass2_asup'
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}'
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}_acu10_p1ref'
 
-# mode_pass1 = 'teacher_forcing'
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}_acu10_p1tf'
-
-# mode_pass1 = 'free_running'
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}_acu10_p1fr'
 
 tts_batch_size = 16 # 32 64 100
+tts_batch_acu = 2
+
+tts_init_weights_path = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_pretrainGold_bs32.tacotron/latest_weights.pyt' # initial weights, usually from a pretrained model
+tts_init_weights_path_pass2 = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_pretrainGold_bs32.tacotron/latest_weights.pyt'
+
+_tmp = 1 if not _tts_adjust_steps else tts_batch_acu
+tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [1, 0, 0]),   # progressive training schedule
+                (2,  1e-3, 20_000 * _tmp,  tts_batch_size, [0.25, 0.25, 0.5]),   # (r, lr, step, batch_size, tts_pass2_input_prob_lst: x_y_both)
+                (2,  5e-4, 30_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9]),
+                (2,  5e-4, 40_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9]),
+                (2,  1e-4, 80_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9])]
+
+tts_pass2_input_train = 'xAOy1s1'
+# tts_fr_length_ratio = 1.0
+# exp_id = f'mp_lj_pass2_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_re4_{tts_pass2_input_train}'
+
+tts_fr_length_ratio = 1.2
+# exp_id = f'mp_lj_pass2_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
+
+
+## better schedule
+# tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [1, 0, 0]),   # progressive training schedule
+#                 (2,  1e-3, 20_000 * _tmp,  tts_batch_size, [0.5, 0.0, 0.5]),   # (r, lr, step, batch_size, tts_pass2_input_prob_lst: x_y_both)
+#                 (2,  5e-4, 30_000 * _tmp,  tts_batch_size, [0.3, 0.0, 0.7]),
+#                 (2,  5e-4, 40_000 * _tmp,  tts_batch_size, [0.1, 0.0, 0.9]),
+#                 (2,  1e-4, 80_000 * _tmp,  tts_batch_size, [0.1, 0.0, 0.9])]
+
+# tts_init_weights_path = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_pretrainGold_bs32.tacotron/latest_weights.pyt' # initial weights, usually from a pretrained model
+# tts_init_weights_path_pass2 = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_fixBestP1_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step20K_weights.pyt'
+# # exp_id = f'mp_lj_pass2_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_betterSched_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
+
+
+## no mask
+tts_pass2_input_train = 'xAOy1s1'
+tts_pass2_input_gen = 'xNy1s1'
+tts_batch_size = 32 # 32 64 100
+tts_batch_acu = 1
+# exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
+
+tts_batch_size = 32 # 32 64 100
 tts_batch_acu = 4
-_tts_adjust_steps = True
-tts_encoder_reduction_factor = 4
+exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
 
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}a{tts_batch_acu}_p1fr_re4'
+# tts_pass2_input_train = 'xAOy1'
+# tts_pass2_input_gen = 'xNy1'
+# tts_batch_size = 16 # 32 64 100
+# tts_batch_acu = 2
+# exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
 
-# tts_pass2_input_train = 'x_y1'
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}a{tts_batch_acu}_p1fr_re{tts_encoder_reduction_factor}_masker'
+# tts_pass2_input_train = 'xAOy1'
+# tts_pass2_input_gen = 'xNy1'
+# tts_batch_size = 16 # 32 64 100
+# tts_batch_acu = 2
+# tts_encoder_reduction_factor = 8
+# tts_encoder_reduction_factor_s = tts_encoder_reduction_factor // 2 # quick fix
+# exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re{tts_encoder_reduction_factor}_{tts_pass2_input_train}'
 
-## train both
-tts_pass2_input_train = 'xNy1'
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}a{tts_batch_acu}_p1fr_re{tts_encoder_reduction_factor}_{tts_pass2_input_train}'
+_tmp = 1 if not _tts_adjust_steps else tts_batch_acu
+tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [1, 0, 0]),   # progressive training schedule
+                (2,  1e-3, 20_000 * _tmp,  tts_batch_size, [0.25, 0.25, 0.5]),   # (r, lr, step, batch_size, tts_pass2_input_prob_lst: x_y_both)
+                (2,  5e-4, 30_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9]),
+                (2,  5e-4, 40_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9]),
+                (2,  1e-4, 80_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9])]
 
-tts_batch_acu = 8
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}a{tts_batch_acu}_p1fr_re{tts_encoder_reduction_factor}_{tts_pass2_input_train}'
 
-tts_pass2_input_train = 'x_y1_xNy1'
-exp_id = f'mp_lj_pass2_BS{tts_batch_size}a{tts_batch_acu}_p1fr_re{tts_encoder_reduction_factor}_{tts_pass2_input_train}'
+tts_save_gv = False
+# tts_save_gv = True
 
-## attend to hidden states
-# tts_pass2_input_train = 'x_y1s1_xNy1s1'
-tts_init_weights_path_pass2 = '/home/dawna/tts/qd212/models/WaveRNN/quick_start/tts_weights/latest_weights.pyt' # initial weights, usually from a pretrained model
-tts_encoder_reduction_factor_s = tts_encoder_reduction_factor // 2 # quick fix
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}a{tts_batch_acu}_moreSteps{_tts_adjust_steps}_p1fr_re{tts_encoder_reduction_factor}_{tts_pass2_input_train}'
-
-_tts_adjust_steps = False
-tts_pass2_input_prob_lst = [0.25, 0.25, 0.5]
-# exp_id = f'mp_lj_pass2_BS{tts_batch_size}a{tts_batch_acu}_moreSteps{_tts_adjust_steps}_p1fr_re{tts_encoder_reduction_factor}_xAOy1s1'
 
 
 
@@ -134,23 +168,24 @@ tts_stop_threshold = -3.4           # Value below which audio generation ends.
                                     # frame that has all values < -3.4
 
 # Training
-_tmp = 1 if not _tts_adjust_steps else tts_batch_acu
+
 # tts_schedule = [(2,  1e-3,  10_000 * _tmp,  tts_batch_size),   # progressive training schedule
 #                 (2,  1e-3, 20_000 * _tmp,  tts_batch_size),   # (r, lr, step, batch_size)
 #                 (2,  1e-4, 40_000 * _tmp,  tts_batch_size)]
 
-tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [1, 0, 0]),   # progressive training schedule
-                (2,  1e-3, 20_000 * _tmp,  tts_batch_size, [0.25, 0.25, 0.5]),   # (r, lr, step, batch_size, tts_pass2_input_prob_lst)
-                (2,  5e-4, 30_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9]),
-                (2,  1e-4, 40_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9])]
+tts_extension_dct = {}
 
 tts_max_mel_len = 1250              # if you have a couple of extremely long spectrograms you might want to use this
 tts_bin_lengths = True              # bins the spectrogram lengths before sampling in data loader - speeds up training
 tts_clip_grad_norm = 1.0            # clips the gradient norm to prevent explosion - set to None if not needed
 tts_checkpoint_every = 2_000 * tts_batch_acu       # checkpoints the model every X steps
-tts_init_weights_path = '/home/dawna/tts/qd212/models/WaveRNN/quick_start/tts_weights/latest_weights.pyt' # initial weights, usually from a pretrained model
-# tts_init_weights_path_pass2 = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_BS16a4_p1fr_re4_masker.tacotron/pass2/taco_step32K_weights.pyt'
+# tts_init_weights_path = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_pretrainGold_bs32.tacotron/latest_weights.pyt' # initial weights, usually from a pretrained model
+# tts_init_weights_path_pass2 = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_pretrainGold_bs32.tacotron/latest_weights.pyt'
 # TODO: tts_phoneme_prob = 0.0              # [0 <-> 1] probability for feeding model phonemes vrs graphemes
+
+tts_use_guided_attn_loss = False
+tts_guided_attn_loss_sigma = 0.4
+tts_guided_attn_loss_lambda = 1.0
 
 mode = 'teacher_forcing' # overall training mode of the multipass system, inconsistent name kept for compatibility
 tts_mode_train_pass1 = 'free_running'
@@ -158,7 +193,7 @@ tts_mode_train_pass2 = 'teacher_forcing'
 tts_mode_gen_pass1 = 'free_running'
 tts_mode_gen_pass2 = 'free_running'
 
-tts_pass2_input_gen = 'xNy1'
+# tts_pass2_input_gen = 'xNy1'
 
 # Test
 # test_sentences_file = 'test_sentences/sentences.txt'
@@ -166,8 +201,9 @@ tts_pass2_input_gen = 'xNy1'
 test_sentences_file = 'test_sentences/sentences_espnet.txt'
 test_sentences_names = ['LJ050-0029_gen', 'LJ050-0030_gen', 'LJ050-0031_gen', 'LJ050-0032_gen', 'LJ050-0033_gen']
 
-# test_sentences_file = 'test_sentences/sentences_espnet_all250.txt'
-# test_sentences_names = [f'LJ050-{29+i:04d}_gen' for i in range(250)]
+if tts_save_gv:
+    test_sentences_file = 'test_sentences/sentences_espnet_all250.txt'
+    test_sentences_names = [f'LJ050-{29+i:04d}_gen' for i in range(250)]
 
 # test_sentences_file = 'test_sentences/asup.txt'
 # test_sentences_names = ['LJ050-0033_gen']

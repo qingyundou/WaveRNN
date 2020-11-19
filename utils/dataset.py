@@ -230,6 +230,23 @@ def collate_tts(batch, r):
         attn_ref = torch.tensor(attn_ref)
         return chars, mel, ids, mel_lens, attn_ref
 
+    # # better code with *
+    # rets = (chars, mel, ids, mel_lens)
+    # if hp.mode in ['teacher_forcing', 'attention_forcing_online']:
+    #     pass
+    # elif hp.mode == 'attention_forcing_offline':
+    #     attn_ref = [pad_cut_attn(x[4], max_x_len, max_spec_len//r) for x in batch]
+    #     attn_ref = np.stack(attn_ref)
+    #     attn_ref = torch.tensor(attn_ref)
+    #     rets += (attn_ref,)
+
+    # if hp.tts_use_guided_attn_loss:
+    #     x_lens = torch.tensor(x_lens).long()
+    #     y_lens = [l//r for l in mel_lens]
+    #     y_lens = torch.tensor(y_lens).long()
+    #     rets += (x_lens, y_lens)
+    # return rets
+
 
 class BinnedLengthSampler(Sampler):
     def __init__(self, lengths, batch_size, bin_size):

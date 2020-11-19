@@ -10,6 +10,8 @@ from importlib.util import spec_from_file_location, module_from_spec
 from pathlib import Path
 from typing import Union
 
+import numpy as np
+
 # Credit: Ryuichi Yamamoto (https://github.com/r9y9/wavenet_vocoder/blob/1717f145c8f8c0f3f85ccdf346b5209fa2e1c920/train.py#L599)
 # Modified by: Ryan Butler (https://github.com/TheButlah)
 # workaround for https://github.com/pytorch/pytorch/issues/15716
@@ -142,3 +144,12 @@ def set_global_seeds(i):
 def smooth(d, eps = float(1e-10)):
     u = 1.0 / float(d.size()[2])
     return eps * u + (1-eps) * d
+
+
+def get_gv(data):
+    """
+    input: mel spec - [D, T]
+    output: avg global var over all dims - 1
+    """
+    gv_dim_lst = [np.var(d) for d in data]
+    return np.mean(gv_dim_lst)

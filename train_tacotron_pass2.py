@@ -16,6 +16,8 @@ import numpy as np
 import sys
 from utils.checkpoints import save_checkpoint, restore_checkpoint
 
+sys.path.append("/home/dawna/tts/qd212/models/espnet")
+from espnet.nets.pytorch_backend.e2e_tts_tacotron2 import GuidedAttentionLoss
 
 def np_now(x: torch.Tensor): return x.detach().cpu().numpy()
 
@@ -54,7 +56,7 @@ def main():
 
     # Instantiate Tacotron Model & Tacotron_pass2 Model
     print('\nInitialising Tacotron Model...\n')
-    Taco = Tacotron_pass1 if 's1' in hp.tts_pass2_input_train else Tacotron
+    Taco = Tacotron_pass1 # if 's1' in hp.tts_pass2_input_train else Tacotron
     model = Taco(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
                      encoder_dims=hp.tts_encoder_dims,
@@ -68,7 +70,8 @@ def main():
                      num_highways=hp.tts_num_highways,
                      dropout=hp.tts_dropout,
                      stop_threshold=hp.tts_stop_threshold,
-                     mode=hp.tts_mode_train_pass1).to(device)
+                     mode=hp.tts_mode_train_pass1,
+                     fr_length_ratio=hp.tts_fr_length_ratio).to(device)
 
     model_pass2 = Tacotron_pass2(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
@@ -139,6 +142,14 @@ def main():
 
         # pdb.set_trace()
 
+    if hp.tts_use_guided_attn_loss:
+        guided_attn_loss = GuidedAttentionLoss(
+            sigma=hp.tts_guided_attn_loss_sigma,
+            alpha=hp.tts_guided_attn_loss_lambda,
+            ).to(device)
+    else:
+        guided_attn_loss = None
+
 
     if not (force_gta or force_attn):
         for i, session in enumerate(hp.tts_schedule):
@@ -169,11 +180,14 @@ def main():
 
             simple_table([(f'Steps with r={r}', str(training_steps//1000) + 'k Steps'),
                             ('Batch Size', batch_size),
+                            ('Batch Accumulation', hp.tts_batch_acu),
                             ('Learning Rate', lr),
-                            ('Outputs/Step (r)', model.r)])
+                            ('Outputs/Step (r)', model.r),
+                            ('p2_input_prob_lst', hp.tts_extension_dct['input_prob_lst'])])
 
             train_set, attn_example = get_tts_datasets(paths.data, batch_size, r)
-            tts_train_loop(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, training_steps, attn_example, hp=hp, model_tf=model_tf)
+            tts_train_loop(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, training_steps, attn_example, 
+                hp=hp, model_tf=model_tf, guided_attn_loss=guided_attn_loss)
 
         print('Training Complete.')
         print('To continue training increase tts_total_steps in hparams.py or use --force_train\n')
@@ -207,9 +221,12 @@ def prepare_pass2_input(x, y_p1, s_p1, input_prob_lst):
 
 
 def tts_train_loop(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, 
-    train_set, lr, train_steps, attn_example, hp=None, model_tf=None):
+    train_set, lr, train_steps, attn_example, hp=None, model_tf=None, guided_attn_loss=None):
     if hp.mode=='teacher_forcing':
-        tts_train_loop_tf(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example)
+        if hp.tts_use_guided_attn_loss:
+            tts_train_loop_tf_gal(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example, guided_attn_loss=guided_attn_loss)
+        else:
+            tts_train_loop_tf(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example)
     # elif hp.mode=='attention_forcing_online':
     #     tts_train_loop_af_online(paths, model, model_tf, optimizer, train_set, lr, train_steps, attn_example, hp=hp)
     # elif hp.mode=='attention_forcing_offline':
@@ -322,6 +339,132 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
                     save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p2')
 
             msg = f'| Epoch: {e}/{epochs} ({i}/{total_iters}) | Loss: {avg_loss:#.4} | {speed:#.2} steps/s | Step: {k}k | '
+            stream(msg)
+
+        # Must save latest optimizer state to ensure that resuming training
+        # doesn't produce artifacts
+        # save_checkpoint('tts', paths, model, optimizer, is_silent=True)
+        # model.log(paths.tts_log, msg)
+        save_checkpoint('tts', paths_pass2, model_pass2, optimizer_pass2, is_silent=True)
+        model_pass2.log(paths_pass2.tts_log, msg)
+        print(' ')
+
+
+def tts_train_loop_tf_gal(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, 
+    train_set, lr, train_steps, attn_example, guided_attn_loss=None):
+    # import pdb; pdb.set_trace()
+    # model.mode = hp.mode_pass1 # 'free_running', asup
+
+    device = next(model.parameters()).device  # use same device as model parameters
+
+    for g in optimizer.param_groups: g['lr'] = lr
+
+    total_iters = len(train_set)
+    epochs = train_steps // total_iters + 1
+
+    for e in range(1, epochs+1):
+
+        start = time.time()
+        running_loss, running_loss_gal = 0, 0
+
+        # optimizer.zero_grad()
+        optimizer_pass2.zero_grad()
+
+        # Perform 1 epoch
+        for i, (x, m, ids, mlens) in enumerate(train_set, 1):
+
+            x, m = x.to(device), m.to(device)
+            # pdb.set_trace()
+
+            # Parallelize model onto GPUS using workaround due to python bug
+            if device.type == 'cuda' and torch.cuda.device_count() > 1:
+                _, m2_hat, attention = data_parallel_workaround(model, x, m)
+            else:
+                # pass1
+                with torch.no_grad(): _, m2_hat, attention, *s_p1 = model(x, m)
+
+                # mask
+                x, m2_hat, s_p1 = prepare_pass2_input(x, m2_hat, s_p1, hp.tts_extension_dct['input_prob_lst'])
+                # import pdb; pdb.set_trace()
+
+                # pass2
+                m1_hat_p2, m2_hat_p2, attention_p2, attention_vc = model_pass2(x, m, m2_hat, s_p1=s_p1)
+
+            # print(x.size())
+            # print(m.size())
+            # print(m1_hat.size(), m2_hat.size())
+            # print(m1_hat_p2.size(), m2_hat_p2.size())
+            # print(attention_p2.size(), attention_p2.size(1)*model.r)
+            # print(attention_vc.size(), attention_vc.size(1)*model.r)
+            # pdb.set_trace()
+            # for idx, tmp in enumerate(ids):
+            #     save_spectrogram(np_now(m1_hat[idx]), paths.tts_mel_plot/f'nomask_{idx}_{tmp}_p1_m1')
+            #     save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'nomask_{idx}_{tmp}_p1_m2')
+            #     save_spectrogram(np_now(m[idx]), paths.tts_mel_plot/f'{idx}_{tmp}_ref')
+
+            m1_loss = F.l1_loss(m1_hat_p2, m)
+            m2_loss = F.l1_loss(m2_hat_p2, m)
+            loss_y = (m1_loss + m2_loss)
+
+            ilens = ((m2_hat.size(-1) - (m2_hat < model.stop_threshold).int().long().prod(1).sum(-1)) // model_pass2.encoder_reduction_factor).to(device)
+            # ilens = ((m1_hat.size(-1) - (m1_hat==-4).int().long().prod(1).sum(-1)) // model_pass2.encoder_reduction_factor).to(device)
+            olens = (torch.tensor([l//model_pass2.r for l in mlens]).long()).to(device)
+
+            tmp = (ilens * model_pass2.encoder_reduction_factor) / float(m.size(-1))
+            if (tmp<0.5).any(): print('warning: len(mel_fr) < 0.5 * len(mel_ref)')
+            # print(ilens)
+            # print(olens)
+            # print(tmp)
+            # print(m2_hat.size(-1) / float(m.size(-1)))
+            ilens[ilens==torch.max(ilens)] = attention_vc.size(2)
+            olens[olens==torch.max(olens)] = attention_vc.size(1)
+            # print(ilens)
+            # print(olens)
+            # pdb.set_trace()
+            loss_gal = guided_attn_loss(attention_vc, ilens, olens)
+
+            loss = loss_y + loss_gal
+
+            (loss / hp.tts_batch_acu).backward()
+            if (i+1)%hp.tts_batch_acu == 0:
+                if hp.tts_clip_grad_norm is not None:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model_pass2.parameters(), hp.tts_clip_grad_norm)
+                    if np.isnan(grad_norm):
+                        print('grad_norm was NaN!')
+                optimizer_pass2.step()
+                optimizer_pass2.zero_grad()
+
+            running_loss += loss_y.item()
+            avg_loss = running_loss / i
+            running_loss_gal += loss_gal.item()
+            avg_loss_gal = running_loss_gal / i
+
+            speed = i / (time.time() - start)
+
+            # step = model.get_step()
+            step = model_pass2.get_step()
+            k = step // 1000
+
+            if step % hp.tts_checkpoint_every == 0:
+                ckpt_name = f'taco_step{k}K'
+                # save_checkpoint('tts', paths, model, optimizer, name=ckpt_name, is_silent=True)
+                save_checkpoint('tts', paths_pass2, model_pass2, optimizer_pass2, name=ckpt_name, is_silent=True)
+
+            # save_attention(np_now(attention_vc[0][:, :]), paths.tts_attention/f'{step}_speech')
+            if attn_example in ids:
+                idx = ids.index(attn_example)
+                save_attention(np_now(attention[idx][:, :160]), paths.tts_attention/f'{step}_text_p1')
+                save_attention(np_now(attention_p2[idx][:, :160]), paths.tts_attention/f'{step}_text_p2')
+                save_attention(np_now(attention_vc[idx][:, :]), paths.tts_attention/f'{step}_speech')
+                save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_p1', 600)
+                save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_p2', 600)
+            for idx, tmp in enumerate(ids):
+                # import pdb; pdb.set_trace()
+                if tmp in ['LJ035-0011', 'LJ016-0320']: # selected egs
+                    save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p1')
+                    save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p2')
+
+            msg = f'| Epoch: {e}/{epochs} ({i}/{total_iters}) | Loss: {avg_loss:#.4} | Guided attn loss: {avg_loss_gal:#.4} | {speed:#.2} steps/s | Step: {k}k | '
             stream(msg)
 
         # Must save latest optimizer state to ensure that resuming training

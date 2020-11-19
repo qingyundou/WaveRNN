@@ -10,6 +10,7 @@ from utils.display import save_attention, simple_table, save_spectrogram
 from utils.dsp import reconstruct_waveform, save_wav
 import numpy as np
 import os
+from utils import get_gv
 
 if __name__ == "__main__":
 
@@ -17,8 +18,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='TTS Generator')
     parser.add_argument('--input_text', '-i', type=str, help='[string] Type in something here and TTS will generate it!')
     parser.add_argument('--tts_weights', type=str, help='[string/path] Load in different Tacotron weights')
+    parser.add_argument('--tts_weights_pass2', type=str, help='[string/path] Load in different Tacotron weights')
     parser.add_argument('--save_attention', '-a', dest='save_attn', action='store_true', help='Save Attention Plots')
     parser.add_argument('--save_mel', '-m', action='store_true', help='Save Mel Plots')
+    parser.add_argument('--save_gv', action='store_true', help='Save the global variance of all mels in a npy array')
+    parser.add_argument('--skip_wav', action='store_true', help='Skip wavform generation')
     parser.add_argument('--force_cpu', '-c', action='store_true', help='Forces CPU-only training, even when in CUDA capable environment')
     parser.add_argument('--hp_file', metavar='FILE', default='hparams.py', help='The file to use for the hyperparameters')
     parser.add_argument('--use_standard_names', action='store_true', help='use hp.test_sentences_names to name the generated audio samples')
@@ -65,8 +69,11 @@ if __name__ == "__main__":
 
     input_text = args.input_text
     tts_weights = args.tts_weights
+    tts_weights_pass2 = args.tts_weights_pass2
     save_attn = args.save_attn
     save_mel = args.save_mel
+    save_gv = args.save_gv or hp.tts_save_gv
+    if save_gv: gv_lst_p1, gv_lst_p2 = [], []
 
     # paths = Paths(hp.data_path, hp.voc_model_id, hp.tts_model_id)
     paths = Paths_multipass(hp.data_path, hp.voc_model_id, hp.tts_model_id, 'pass1')
@@ -149,7 +156,7 @@ if __name__ == "__main__":
                      encoder_reduction_factor_s=hp.tts_encoder_reduction_factor_s,
                      pass2_input=hp.tts_pass2_input_train).to(device)
 
-    tts_load_path = tts_weights if tts_weights else paths_pass2.tts_latest_weights
+    tts_load_path = tts_weights_pass2 if tts_weights_pass2 else paths_pass2.tts_latest_weights
     tts_model_pass2.load(tts_load_path)
 
     if input_text:
@@ -240,15 +247,24 @@ if __name__ == "__main__":
             save_spectrogram(m, str(save_path).replace('.wav', '_p1'), 600)
             save_spectrogram(m_p2, str(save_path).replace('.wav', '_p2'), 600)
 
-        if args.vocoder == 'wavernn':
-            m = torch.tensor(m).unsqueeze(0)
-            voc_model.generate(m, save_path, batched, hp.voc_target, hp.voc_overlap, hp.mu_law)
-            m_p2 = torch.tensor(m_p2).unsqueeze(0)
-            voc_model.generate(m_p2, save_path_p2, batched, hp.voc_target, hp.voc_overlap, hp.mu_law)
-        elif args.vocoder == 'griffinlim':
-            wav = reconstruct_waveform(m, n_iter=args.iters)
-            save_wav(wav, save_path)
-            wav = reconstruct_waveform(m_p2, n_iter=args.iters)
-            save_wav(wav, save_path_p2)
+        if save_gv:
+            gv_lst_p1.append(get_gv(m))
+            gv_lst_p2.append(get_gv(m_p2))
+
+        if not args.skip_wav:
+            if args.vocoder == 'wavernn':
+                m = torch.tensor(m).unsqueeze(0)
+                voc_model.generate(m, save_path, batched, hp.voc_target, hp.voc_overlap, hp.mu_law)
+                m_p2 = torch.tensor(m_p2).unsqueeze(0)
+                voc_model.generate(m_p2, save_path_p2, batched, hp.voc_target, hp.voc_overlap, hp.mu_law)
+            elif args.vocoder == 'griffinlim':
+                wav = reconstruct_waveform(m, n_iter=args.iters)
+                save_wav(wav, save_path)
+                wav = reconstruct_waveform(m_p2, n_iter=args.iters)
+                save_wav(wav, save_path_p2)
+
+        if save_gv:
+            np.save(paths.tts_output/f'{hp.tts_pass2_input_gen}'/f'gv_p1_array_{tts_k}k', np.array(gv_lst_p1))
+            np.save(paths.tts_output/f'{hp.tts_pass2_input_gen}'/f'gv_p2_array_{tts_k}k', np.array(gv_lst_p2))
 
     print('\n\nDone.\n')

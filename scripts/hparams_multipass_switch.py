@@ -5,10 +5,32 @@
 wav_path = '/home/dawna/tts/data/LJSpeech-1.1/webData/wavs/'
 data_path = 'data/'
 
+## hparams to tune
+# tts_batch_size = 10 # 32 64 100
+# tts_batch_acu = 10
+tts_batch_size = 20 # 32 64 100
+tts_batch_acu = 5
+_tts_adjust_steps = False
+tts_updateP1, tts_updateP2 = True, True
+
 # model ids are separate - that way you can use a new tts with an old wavernn and vice versa
 # NB: expect undefined behaviour if models were trained on different DSP settings
-tts_batch_size = 100 # 32 64 100
-exp_id = f'lj_af_online_kl1.0_bs{tts_batch_size}'
+
+## new schedule, always [0,0,1]
+## switch between fr and tf for p1, update p1 only in tf mode, always update p2
+tts_switch_fr_tf = True
+exp_id = f'mp_lj_nll1N2_p1N2SS_p1frOtf_xAy1s1_BS{tts_batch_size}a{tts_batch_acu}_moreSteps{_tts_adjust_steps}_re4'
+
+
+# tts_batch_size = 5 # 32 64 100
+# tts_batch_acu = 20
+# tts_fr_length_ratio = 1.2
+# exp_id = f'mp_lj_nll1N2_p1N2SS_p1frOtf_frL{tts_fr_length_ratio}_xAy1s1_BS{tts_batch_size}a{tts_batch_acu}_moreSteps{_tts_adjust_steps}_re4'
+
+
+
+
+exp_id = exp_id.replace('free_running', 'fr').replace('teacher_forcing', 'tf').replace('attention_forcing', 'af').replace('True', 'T').replace('False', 'F')
 voc_model_id = exp_id + ''
 tts_model_id = exp_id + ''
 
@@ -86,41 +108,52 @@ tts_stop_threshold = -3.4           # Value below which audio generation ends.
                                     # will terminate the sequence at the first
                                     # frame that has all values < -3.4
 
+tts_encoder_reduction_factor = 4
+tts_encoder_reduction_factor_s = tts_encoder_reduction_factor // 2 # quick fix
+
+
 # Training
+_tmp = 1 if not _tts_adjust_steps else tts_batch_acu
+# tts_schedule = [(2,  1e-3,  10_000 * _tmp,  tts_batch_size),   # progressive training schedule
+#                 (2,  1e-3, 20_000 * _tmp,  tts_batch_size),   # (r, lr, step, batch_size)
+#                 (2,  1e-4, 40_000 * _tmp,  tts_batch_size)]
 
-# tts_schedule = [(7,  1e-3,  10_000,  32),   # progressive training schedule
-#                 (5,  1e-4, 20_000,  32),   # (r, lr, step, batch_size)
-#                 (2,  1e-4, 40_000,  16),
-#                 (2,  1e-4, 80_000,  8)]
+# tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [1, 0, 0]),   # progressive training schedule
+#                 (2,  1e-3, 20_000 * _tmp,  tts_batch_size, [0.25, 0.25, 0.5]),   # (r, lr, step, batch_size, tts_pass2_input_prob_lst)
+#                 (2,  5e-4, 30_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9]),
+#                 (2,  1e-4, 40_000 * _tmp,  tts_batch_size, [0.05, 0.05, 0.9])]
 
-tts_schedule = [(2,  1e-3,  10_000,  tts_batch_size),   # progressive training schedule
-                (2,  1e-3, 20_000,  tts_batch_size),   # (r, lr, step, batch_size)
-                (2,  1e-3, 40_000,  tts_batch_size),
-                (2,  1e-4, 80_000,  tts_batch_size)]
+tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [0, 0, 1]),   # progressive training schedule
+                (2,  1e-3, 20_000 * _tmp,  tts_batch_size, [0, 0, 1]),   # (r, lr, step, batch_size, tts_pass2_input_prob_lst)
+                (2,  5e-4, 30_000 * _tmp,  tts_batch_size, [0, 0, 1]),
+                (2,  1e-4, 40_000 * _tmp,  tts_batch_size, [0, 0, 1])]
+
+# dct of extension hps, makes coding easy, does not seem like good practice
+tts_extension_dct = {'input_prob_lst': [0.0, 0.0, 1.0], 'fr_prob': 0.5}
 
 tts_max_mel_len = 1250              # if you have a couple of extremely long spectrograms you might want to use this
 tts_bin_lengths = True              # bins the spectrogram lengths before sampling in data loader - speeds up training
 tts_clip_grad_norm = 1.0            # clips the gradient norm to prevent explosion - set to None if not needed
-tts_checkpoint_every = 2_000        # checkpoints the model every X steps
+tts_checkpoint_every = 2_000 * tts_batch_acu       # checkpoints the model every X steps
 tts_init_weights_path = '/home/dawna/tts/qd212/models/WaveRNN/quick_start/tts_weights/latest_weights.pyt' # initial weights, usually from a pretrained model
+tts_init_weights_path_pass2 = '/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_BS16a8_moreStepsFalse_p1fr_re4_xAOy1s1.tacotron/pass2/latest_weights.pyt'
 # TODO: tts_phoneme_prob = 0.0              # [0 <-> 1] probability for feeding model phonemes vrs graphemes
 
-mode = 'attention_forcing_online'
-# mode = 'teacher_forcing'
+mode = 'teacher_forcing' # overall training mode of the multipass system, inconsistent name kept for compatibility
+tts_mode_train_pass1 = 'teacher_forcing' # 'free_running'
+tts_mode_train_pass2 = 'teacher_forcing'
+tts_mode_gen_pass1 = 'free_running'
+tts_mode_gen_pass2 = 'free_running'
+tts_pass2_input_train = 'xAOy1s1'
 
-attn_loss_coeff = 1.0
-attn_ref_path = 'attn_lj_gold'
-model_tf_path = tts_init_weights_path
 
 # Test
+tts_pass2_input_gen = 'xAy1s1' # similar effect to 'xNy1'
+
 # test_sentences_file = 'test_sentences/sentences.txt'
 # test_sentences_names = ['LJ001-0073', 'LJ010-0294', 'LJ020-0077', 'LJ030-0208', 'LJ040-0113']
 test_sentences_file = 'test_sentences/sentences_espnet.txt'
 test_sentences_names = ['LJ050-0029_gen', 'LJ050-0030_gen', 'LJ050-0031_gen', 'LJ050-0032_gen', 'LJ050-0033_gen']
-
-# test_sentences_file = 'test_sentences/sentences_espnet_all250.txt'
-# test_sentences_names = [f'LJ050-{29+i:04d}_gen' for i in range(250)]
-
 # test_sentences_file = 'test_sentences/asup.txt'
 # test_sentences_names = ['LJ050-0033_gen']
 

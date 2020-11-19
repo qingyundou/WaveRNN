@@ -9,6 +9,7 @@ from utils.text import text_to_sequence
 from utils.display import save_attention, simple_table
 from utils.dsp import reconstruct_waveform, save_wav
 import numpy as np
+from utils import get_gv
 
 if __name__ == "__main__":
 
@@ -17,6 +18,8 @@ if __name__ == "__main__":
     parser.add_argument('--input_text', '-i', type=str, help='[string] Type in something here and TTS will generate it!')
     parser.add_argument('--tts_weights', type=str, help='[string/path] Load in different Tacotron weights')
     parser.add_argument('--save_attention', '-a', dest='save_attn', action='store_true', help='Save Attention Plots')
+    parser.add_argument('--save_gv', action='store_true', help='Save the global variance of all mels in a npy array')
+    parser.add_argument('--skip_wav', action='store_true', help='Skip wavform generation')
     parser.add_argument('--force_cpu', '-c', action='store_true', help='Forces CPU-only training, even when in CUDA capable environment')
     parser.add_argument('--hp_file', metavar='FILE', default='hparams.py', help='The file to use for the hyperparameters')
 
@@ -65,6 +68,8 @@ if __name__ == "__main__":
     input_text = args.input_text
     tts_weights = args.tts_weights
     save_attn = args.save_attn
+    save_gv = args.save_gv
+    if save_gv: gv_lst = []
 
     paths = Paths(hp.data_path, hp.voc_model_id, hp.tts_model_id)
 
@@ -163,11 +168,16 @@ if __name__ == "__main__":
 
         if save_attn: save_attention(attention, save_path)
 
-        if args.vocoder == 'wavernn':
-            m = torch.tensor(m).unsqueeze(0)
-            voc_model.generate(m, save_path, batched, hp.voc_target, hp.voc_overlap, hp.mu_law)
-        elif args.vocoder == 'griffinlim':
-            wav = reconstruct_waveform(m, n_iter=args.iters)
-            save_wav(wav, save_path)
+        if save_gv: gv_lst.append(get_gv(m))
+
+        if not args.skip_wav:
+            if args.vocoder == 'wavernn':
+                m = torch.tensor(m).unsqueeze(0)
+                voc_model.generate(m, save_path, batched, hp.voc_target, hp.voc_overlap, hp.mu_law)
+            elif args.vocoder == 'griffinlim':
+                wav = reconstruct_waveform(m, n_iter=args.iters)
+                save_wav(wav, save_path)
+
+    if save_gv: np.save(paths.tts_output/'gv_array', np.array(gv_lst))
 
     print('\n\nDone.\n')

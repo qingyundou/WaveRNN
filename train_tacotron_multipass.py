@@ -68,7 +68,8 @@ def main():
                      num_highways=hp.tts_num_highways,
                      dropout=hp.tts_dropout,
                      stop_threshold=hp.tts_stop_threshold,
-                     mode=hp.tts_mode_train_pass1).to(device)
+                     mode=hp.tts_mode_train_pass1,
+                     fr_length_ratio=hp.tts_fr_length_ratio).to(device)
 
     model_pass2 = Tacotron_pass2(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
@@ -145,7 +146,7 @@ def main():
             current_step = model.get_step()
 
             r, lr, max_step, batch_size, *extension = session
-            if extension: hp.tts_extension_dct['input_prob_lst'] = extension[0] if extension else [0, 0, 1]
+            hp.tts_extension_dct['input_prob_lst'] = extension[0] if extension else [0, 0, 1]
 
             training_steps = max_step - current_step
 
@@ -170,6 +171,7 @@ def main():
 
             simple_table([(f'Steps with r={r}', str(training_steps//1000) + 'k Steps'),
                             ('Batch Size', batch_size),
+                            ('Batch Accumulation', hp.tts_batch_acu),
                             ('Learning Rate', lr),
                             ('Outputs/Step (r)', model.r),
                             ('p2_input_prob_lst', hp.tts_extension_dct['input_prob_lst'])])
@@ -207,11 +209,20 @@ def prepare_pass2_input(x, y_p1, s_p1, input_prob_lst):
         if s_p1 is not None: s_p1 = s_p1 * 0
     return x, y_p1, s_p1
 
+def get_pathModelOptimizer_lst(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, tts_updateP1, tts_updateP2):
+    pathModelOptimizer_lst = []
+    if tts_updateP1: pathModelOptimizer_lst.append((paths, model, optimizer))
+    if tts_updateP2: pathModelOptimizer_lst.append((paths_pass2, model_pass2, optimizer_pass2))
+    return pathModelOptimizer_lst
+
 
 def tts_train_loop(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, 
     train_set, lr, train_steps, attn_example, hp=None, model_tf=None):
     if hp.mode=='teacher_forcing':
-        tts_train_loop_tf(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example)
+        if hp.tts_switch_fr_tf:
+            tts_train_loop_fr_tf(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example)
+        else:
+            tts_train_loop_tf(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example)
     elif hp.mode=='attention_forcing_online':
         tts_train_loop_af_online(paths, paths_pass2, model, model_pass2, model_tf, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example, hp=hp)
     elif hp.mode=='attention_forcing_offline':
@@ -231,9 +242,9 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
     total_iters = len(train_set)
     epochs = train_steps // total_iters + 1
 
-    passModelOptimizer_lst = []
-    if hp.tts_updateP1: passModelOptimizer_lst.append((paths, model, optimizer))
-    if hp.tts_updateP2: passModelOptimizer_lst.append((paths_pass2, model_pass2, optimizer_pass2))
+    pathModelOptimizer_lst = []
+    if hp.tts_updateP1: pathModelOptimizer_lst.append((paths, model, optimizer))
+    if hp.tts_updateP2: pathModelOptimizer_lst.append((paths_pass2, model_pass2, optimizer_pass2))
 
     for e in range(1, epochs+1):
 
@@ -296,7 +307,7 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
             # pdb.set_trace()
 
             if (i+1)%hp.tts_batch_acu == 0:
-                for _paths, _model, _optimizer in passModelOptimizer_lst:
+                for _paths, _model, _optimizer in pathModelOptimizer_lst:
                     # clip grad only once before updating the params with step()
                     if hp.tts_clip_grad_norm is not None:
                         grad_norm = torch.nn.utils.clip_grad_norm_(_model.parameters(), hp.tts_clip_grad_norm)
@@ -322,7 +333,7 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
 
             if step % hp.tts_checkpoint_every == 0:
                 ckpt_name = f'taco_step{k}K'
-                for _paths, _model, _optimizer in passModelOptimizer_lst:
+                for _paths, _model, _optimizer in pathModelOptimizer_lst:
                     save_checkpoint('tts', _paths, _model, _optimizer, name=ckpt_name, is_silent=True)
                 # save_checkpoint('tts', paths, model, optimizer, name=ckpt_name, is_silent=True)
                 # save_checkpoint('tts', paths_pass2, model_pass2, optimizer_pass2, name=ckpt_name, is_silent=True)
@@ -346,13 +357,126 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
 
         # Must save latest optimizer state to ensure that resuming training
         # doesn't produce artifacts
-        for _paths, _model, _optimizer in passModelOptimizer_lst:
+        for _paths, _model, _optimizer in pathModelOptimizer_lst:
             save_checkpoint('tts', _paths, _model, _optimizer, is_silent=True)
             _model.log(_paths.tts_log, msg)
         # save_checkpoint('tts', paths, model, optimizer, is_silent=True)
         # model.log(paths.tts_log, msg)
         # save_checkpoint('tts', paths_pass2, model_pass2, optimizer_pass2, is_silent=True)
         # model_pass2.log(paths_pass2.tts_log, msg)
+        print(' ')
+
+
+def tts_train_loop_fr_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example):
+    # import pdb; pdb.set_trace()
+
+    device = next(model.parameters()).device  # use same device as model parameters
+
+    for g in optimizer.param_groups: g['lr'] = lr
+    for g in optimizer_pass2.param_groups: g['lr'] = lr
+
+    total_iters = len(train_set)
+    epochs = train_steps // total_iters + 1
+
+    for e in range(1, epochs+1):
+
+        start = time.time()
+        running_loss_p1, running_loss_p2 = 0,0
+
+        optimizer.zero_grad()
+        optimizer_pass2.zero_grad()
+
+        model.mode, hp.tts_updateP1, hp.tts_updateP2 = 'teacher_forcing', True, True # get 2 losses, for variable reference issues
+        pathModelOptimizer_lst = get_pathModelOptimizer_lst(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, hp.tts_updateP1, hp.tts_updateP2)
+        pathModelOptimizer_lst_switch = pathModelOptimizer_lst
+
+        # Perform 1 epoch
+        for i, (x, m, ids, _) in enumerate(train_set, 1):
+
+            x, m = x.to(device), m.to(device)
+            # pdb.set_trace()
+
+            # Parallelize model onto GPUS using workaround due to python bug
+            if device.type == 'cuda' and torch.cuda.device_count() > 1:
+                m1_hat, m2_hat, attention = data_parallel_workaround(model, x, m)
+            else:
+                # pass1
+                if hp.tts_updateP1:
+                    m1_hat, m2_hat, attention, *s_p1 = model(x, m)
+                else:
+                    with torch.no_grad(): _, m2_hat, attention, *s_p1 = model(x, m)
+
+                # mask
+                x, m2_hat, s_p1 = prepare_pass2_input(x, m2_hat, s_p1, hp.tts_extension_dct['input_prob_lst'])
+                # import pdb; pdb.set_trace()
+
+                # pass 2
+                m1_hat_p2, m2_hat_p2, attention_p2, attention_vc = model_pass2(x, m, m2_hat, s_p1=s_p1)
+
+            loss_p2 = (F.l1_loss(m1_hat_p2, m) + F.l1_loss(m2_hat_p2, m))
+            loss = loss_p2
+            if model.mode=='teacher_forcing':
+                loss_p1 = (F.l1_loss(m1_hat, m) + F.l1_loss(m2_hat, m))
+                loss = loss + loss_p1
+
+            (loss / hp.tts_batch_acu).backward()
+
+            if (i+1)%hp.tts_batch_acu == 0:
+                for _paths, _model, _optimizer in pathModelOptimizer_lst_switch:
+                    # clip grad only once before updating the params with step()
+                    if hp.tts_clip_grad_norm is not None:
+                        grad_norm = torch.nn.utils.clip_grad_norm_(_model.parameters(), hp.tts_clip_grad_norm)
+                        if np.isnan(grad_norm):
+                            print('grad_norm was NaN!')
+                    _optimizer.step()
+                    _optimizer.zero_grad()
+
+                if np.random.uniform(high=1.0)<hp.tts_extension_dct['fr_prob']:
+                    model.mode, hp.tts_updateP1, hp.tts_updateP2 = 'free_running', False, True
+                else:
+                    model.mode, hp.tts_updateP1, hp.tts_updateP2 = 'teacher_forcing', True, False
+                pathModelOptimizer_lst_switch = get_pathModelOptimizer_lst(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, hp.tts_updateP1, hp.tts_updateP2)
+
+            running_loss_p1 += loss_p1.item()
+            avg_loss_p1 = running_loss_p1 / i
+            running_loss_p2 += loss_p2.item()
+            avg_loss_p2 = running_loss_p2 / i
+
+            speed = i / (time.time() - start)
+
+            # step = model.get_step()
+            step = model_pass2.get_step()
+            k = step // 1000
+
+            if step % hp.tts_checkpoint_every == 0:
+                ckpt_name = f'taco_step{k}K'
+                for _paths, _model, _optimizer in pathModelOptimizer_lst:
+                    save_checkpoint('tts', _paths, _model, _optimizer, name=ckpt_name, is_silent=True)
+                # save_checkpoint('tts', paths, model, optimizer, name=ckpt_name, is_silent=True)
+                # save_checkpoint('tts', paths_pass2, model_pass2, optimizer_pass2, name=ckpt_name, is_silent=True)
+
+            # save_attention(np_now(attention_vc[0][:, :]), paths.tts_attention/f'{step}_speech')
+            if attn_example in ids:
+                idx = ids.index(attn_example)
+                save_attention(np_now(attention[idx][:, :160]), paths.tts_attention/f'{step}_text_p1')
+                save_attention(np_now(attention_p2[idx][:, :160]), paths.tts_attention/f'{step}_text_p2')
+                save_attention(np_now(attention_vc[idx][:, :]), paths.tts_attention/f'{step}_speech')
+                save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_p1', 600)
+                save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_p2', 600)
+            for idx, tmp in enumerate(ids):
+                # import pdb; pdb.set_trace()
+                if tmp in ['LJ035-0011', 'LJ016-0320']: # selected egs
+                    save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p1')
+                    save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p2')
+
+            msg = f'| Epoch: {e}/{epochs} ({i}/{total_iters}) | Mode_p1: {model.mode} | Loss_p1: {avg_loss_p1:#.4} | Loss_p2: {avg_loss_p2:#.4} |{speed:#.2} steps/s | Step: {k}k | '
+            stream(msg)
+
+        # Must save latest optimizer state to ensure that resuming training
+        # doesn't produce artifacts
+        for _paths, _model, _optimizer in pathModelOptimizer_lst:
+            save_checkpoint('tts', _paths, _model, _optimizer, is_silent=True)
+            _model.log(_paths.tts_log, msg)
         print(' ')
 
 
@@ -368,9 +492,9 @@ def tts_train_loop_af_online(paths: Paths, paths_pass2: Paths, model: Tacotron, 
     total_iters = len(train_set)
     epochs = train_steps // total_iters + 1
 
-    passModelOptimizer_lst = []
-    if hp.tts_updateP1: passModelOptimizer_lst.append((paths, model, optimizer))
-    if hp.tts_updateP2: passModelOptimizer_lst.append((paths_pass2, model_pass2, optimizer_pass2))
+    pathModelOptimizer_lst = []
+    if hp.tts_updateP1: pathModelOptimizer_lst.append((paths, model, optimizer))
+    if hp.tts_updateP2: pathModelOptimizer_lst.append((paths_pass2, model_pass2, optimizer_pass2))
 
     for e in range(1, epochs+1):
 
@@ -444,7 +568,7 @@ def tts_train_loop_af_online(paths: Paths, paths_pass2: Paths, model: Tacotron, 
             # pdb.set_trace()
 
             if (i+1)%hp.tts_batch_acu == 0:
-                for _paths, _model, _optimizer in passModelOptimizer_lst:
+                for _paths, _model, _optimizer in pathModelOptimizer_lst:
                     # clip grad only once before updating the params with step()
                     if hp.tts_clip_grad_norm is not None:
                         grad_norm = torch.nn.utils.clip_grad_norm_(_model.parameters(), hp.tts_clip_grad_norm)
@@ -472,7 +596,7 @@ def tts_train_loop_af_online(paths: Paths, paths_pass2: Paths, model: Tacotron, 
 
             if step % hp.tts_checkpoint_every == 0:
                 ckpt_name = f'taco_step{k}K'
-                for _paths, _model, _optimizer in passModelOptimizer_lst:
+                for _paths, _model, _optimizer in pathModelOptimizer_lst:
                     save_checkpoint('tts', _paths, _model, _optimizer, name=ckpt_name, is_silent=True)
                 # save_checkpoint('tts', paths, model, optimizer, name=ckpt_name, is_silent=True)
                 # save_checkpoint('tts', paths_pass2, model_pass2, optimizer_pass2, name=ckpt_name, is_silent=True)
@@ -497,7 +621,7 @@ def tts_train_loop_af_online(paths: Paths, paths_pass2: Paths, model: Tacotron, 
 
         # Must save latest optimizer state to ensure that resuming training
         # doesn't produce artifacts
-        for _paths, _model, _optimizer in passModelOptimizer_lst:
+        for _paths, _model, _optimizer in pathModelOptimizer_lst:
             save_checkpoint('tts', _paths, _model, _optimizer, is_silent=True)
             _model.log(_paths.tts_log, msg)
         # save_checkpoint('tts', paths, model, optimizer, is_silent=True)
@@ -519,9 +643,9 @@ def tts_train_loop_af_offline(paths: Paths, paths_pass2: Paths, model: Tacotron,
     total_iters = len(train_set)
     epochs = train_steps // total_iters + 1
 
-    passModelOptimizer_lst = []
-    if hp.tts_updateP1: passModelOptimizer_lst.append((paths, model, optimizer))
-    if hp.tts_updateP2: passModelOptimizer_lst.append((paths_pass2, model_pass2, optimizer_pass2))
+    pathModelOptimizer_lst = []
+    if hp.tts_updateP1: pathModelOptimizer_lst.append((paths, model, optimizer))
+    if hp.tts_updateP2: pathModelOptimizer_lst.append((paths_pass2, model_pass2, optimizer_pass2))
 
     for e in range(1, epochs+1):
 
@@ -591,7 +715,7 @@ def tts_train_loop_af_offline(paths: Paths, paths_pass2: Paths, model: Tacotron,
             # pdb.set_trace()
 
             if (i+1)%hp.tts_batch_acu == 0:
-                for _paths, _model, _optimizer in passModelOptimizer_lst:
+                for _paths, _model, _optimizer in pathModelOptimizer_lst:
                     # clip grad only once before updating the params with step()
                     if hp.tts_clip_grad_norm is not None:
                         grad_norm = torch.nn.utils.clip_grad_norm_(_model.parameters(), hp.tts_clip_grad_norm)
@@ -619,7 +743,7 @@ def tts_train_loop_af_offline(paths: Paths, paths_pass2: Paths, model: Tacotron,
 
             if step % hp.tts_checkpoint_every == 0:
                 ckpt_name = f'taco_step{k}K'
-                for _paths, _model, _optimizer in passModelOptimizer_lst:
+                for _paths, _model, _optimizer in pathModelOptimizer_lst:
                     save_checkpoint('tts', _paths, _model, _optimizer, name=ckpt_name, is_silent=True)
                 # save_checkpoint('tts', paths, model, optimizer, name=ckpt_name, is_silent=True)
                 # save_checkpoint('tts', paths_pass2, model_pass2, optimizer_pass2, name=ckpt_name, is_silent=True)
@@ -644,7 +768,7 @@ def tts_train_loop_af_offline(paths: Paths, paths_pass2: Paths, model: Tacotron,
 
         # Must save latest optimizer state to ensure that resuming training
         # doesn't produce artifacts
-        for _paths, _model, _optimizer in passModelOptimizer_lst:
+        for _paths, _model, _optimizer in pathModelOptimizer_lst:
             save_checkpoint('tts', _paths, _model, _optimizer, is_silent=True)
             _model.log(_paths.tts_log, msg)
         # save_checkpoint('tts', paths, model, optimizer, is_silent=True)
