@@ -44,11 +44,25 @@ tts_init_weights_path_pass2 = tts_init_weights_path
 ## tuning
 # tts_guided_attn_loss_lambda = 1.0
 # tts_guided_attn_loss_lambda = 5.0
-# tts_guided_attn_loss_lambda = 10.0
-tts_guided_attn_loss_lambda = 100.0
+tts_guided_attn_loss_lambda = 10.0
+# tts_guided_attn_loss_lambda = 100.0
 
-exp_id = f'mp_lj_pass2_nomask_fixBestP1_GAL{tts_guided_attn_loss_lambda}_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
+# exp_id = f'mp_lj_pass2_nomask_fixBestP1_GAL{tts_guided_attn_loss_lambda}_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
 
+
+## sched
+tts_pass2_concat = False
+tts_pass2_delib = False
+
+_tmp = 1 if not _tts_adjust_steps else tts_batch_acu
+tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [0., 0., 1.], 1.0),   # progressive training schedule
+                (2,  1e-3, 20_000 * _tmp,  tts_batch_size, [0., 0., 1.], 0.5),   # (r, lr, step, batch_size, tts_pass2_input_prob_lst: x_y_both)
+                (2,  5e-4, 30_000 * _tmp,  tts_batch_size, [0., 0., 1.], 0.1),
+                (2,  5e-4, 40_000 * _tmp,  tts_batch_size, [0., 0., 1.], 0.0),
+                (2,  1e-4, 80_000 * _tmp,  tts_batch_size, [0., 0., 1.], 0.0)]
+
+# exp_id = f'mp_lj_pass2_nomask_fixBestP1_GAL{tts_guided_attn_loss_lambda}sched_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
+exp_id = f'mp_lj_pass2_nomask_fixBestP1_GAL{tts_guided_attn_loss_lambda}schedDiag_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
 
 
 # tts_fr_length_ratio = 1.0
@@ -56,7 +70,7 @@ exp_id = f'mp_lj_pass2_nomask_fixBestP1_GAL{tts_guided_attn_loss_lambda}_BS{tts_
 tts_pass2_input_gen = 'xNy1s1'
 
 tts_save_gv = False
-tts_save_gv = True
+# tts_save_gv = True
 
 
 voc_model_id = exp_id + ''

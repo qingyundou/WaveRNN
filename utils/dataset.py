@@ -103,7 +103,7 @@ def collate_vocoder(batch):
 ###################################################################################
 
 
-def get_tts_datasets(path: Path, batch_size, r):
+def get_tts_datasets(path: Path, batch_size, r, data_split=[-1,0,0]):
 
     with open(path/'dataset.pkl', 'rb') as f:
         dataset = pickle.load(f)
@@ -111,8 +111,12 @@ def get_tts_datasets(path: Path, batch_size, r):
     dataset_ids = []
     mel_lengths = []
 
+    # get lst of valid and test data
+    v_t_id_lst = get_v_t_id_lst(dataset, data_split)
+
+    # filter out valid and test data, and long data
     for (item_id, len) in dataset:
-        if len <= hp.tts_max_mel_len:
+        if (len <= hp.tts_max_mel_len) and (item_id not in v_t_id_lst): 
             dataset_ids += [item_id]
             mel_lengths += [len]
 
@@ -141,6 +145,21 @@ def get_tts_datasets(path: Path, batch_size, r):
     # print(attn_example)
 
     return train_set, attn_example
+
+def get_v_t_id_lst(dataset, data_split):
+    # clean data_split
+    if -1 in data_split:
+        assert data_split.count(-1)==1, f'expected at most one -1 in data_split but got {data_split.count(-1)}'
+        tmp = len(dataset) - (sum(data_split)+1)
+        data_split = [tmp if x==-1 else x for x in data_split]
+    assert len(dataset)==sum(data_split), f'len(dataset) {len(dataset)} != sum(data_split) {sum(data_split)}'
+
+    #  using safe indexing; if there is a split, sort id_lst and get v_t_id_lst
+    if len(dataset)==data_split[0]:
+        return []
+    else:
+        v_t_id_lst = sorted([item_id for item_id,l in dataset])
+        return v_t_id_lst[-data_split[1]-data_split[2]:]
 
 
 class TTSDataset(Dataset):

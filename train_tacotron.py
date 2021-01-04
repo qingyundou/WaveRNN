@@ -31,6 +31,7 @@ def main():
     args = parser.parse_args()
 
     hp.configure(args.hp_file)  # Load hparams from file
+    hp.fix_compatibility()
     paths = Paths(hp.data_path, hp.voc_model_id, hp.tts_model_id)
 
     if hasattr(hp, 'random_seed'):
@@ -125,7 +126,7 @@ def main():
                             ('Learning Rate', lr),
                             ('Outputs/Step (r)', model.r)])
 
-            train_set, attn_example = get_tts_datasets(paths.data, batch_size, r)
+            train_set, attn_example = get_tts_datasets(paths.data, batch_size, r, data_split=hp.tts_data_split)
             tts_train_loop(paths, model, optimizer, train_set, lr, training_steps, attn_example, hp=hp, model_tf=model_tf)
 
         print('Training Complete.')
@@ -163,10 +164,16 @@ def tts_train_loop_tf(paths: Paths, model: Tacotron, optimizer, train_set, lr, t
     total_iters = len(train_set)
     epochs = train_steps // total_iters + 1
 
+    # print(total_iters * hp.tts_batch_size)
+    # pdb.set_trace()
+
     for e in range(1, epochs+1):
 
         start = time.time()
         running_loss = 0
+
+        # accumulte grad
+        optimizer.zero_grad()
 
         # Perform 1 epoch
         for i, (x, m, ids, _) in enumerate(train_set, 1):
@@ -191,14 +198,23 @@ def tts_train_loop_tf(paths: Paths, model: Tacotron, optimizer, train_set, lr, t
 
             loss = m1_loss + m2_loss
 
-            optimizer.zero_grad()
-            loss.backward()
-            if hp.tts_clip_grad_norm is not None:
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hp.tts_clip_grad_norm)
-                if np.isnan(grad_norm):
-                    print('grad_norm was NaN!')
+            # optimizer.zero_grad()
+            # loss.backward()
+            # if hp.tts_clip_grad_norm is not None:
+            #     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hp.tts_clip_grad_norm)
+            #     if np.isnan(grad_norm):
+            #         print('grad_norm was NaN!')
+            # optimizer.step()
 
-            optimizer.step()
+            # accumulte grad
+            (loss / hp.tts_batch_acu).backward()
+            if (i+1)%hp.tts_batch_acu == 0:
+                if hp.tts_clip_grad_norm is not None:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hp.tts_clip_grad_norm)
+                    if np.isnan(grad_norm):
+                        print('grad_norm was NaN!')
+                optimizer.step()
+                optimizer.zero_grad()
 
             running_loss += loss.item()
             avg_loss = running_loss / i
@@ -248,6 +264,8 @@ def tts_train_loop_af_online(paths: Paths, model: Tacotron, model_tf: Tacotron, 
 
         start = time.time()
         running_loss_out, running_loss_attn = 0, 0
+
+        optimizer.zero_grad()
 
         # Perform 1 epoch
         for i, (x, m, ids, _) in enumerate(train_set, 1):
@@ -303,14 +321,23 @@ def tts_train_loop_af_online(paths: Paths, model: Tacotron, model_tf: Tacotron, 
             #     model_tf.r = model.r
             #     pdb.set_trace()
 
-            optimizer.zero_grad()
-            loss.backward()
-            if hp.tts_clip_grad_norm is not None:
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hp.tts_clip_grad_norm)
-                if np.isnan(grad_norm):
-                    print('grad_norm was NaN!')
+            # optimizer.zero_grad()
+            # loss.backward()
+            # if hp.tts_clip_grad_norm is not None:
+            #     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hp.tts_clip_grad_norm)
+            #     if np.isnan(grad_norm):
+            #         print('grad_norm was NaN!')
+            # optimizer.step()
 
-            optimizer.step()
+            # accumulte grad
+            (loss / hp.tts_batch_acu).backward()
+            if (i+1)%hp.tts_batch_acu == 0:
+                if hp.tts_clip_grad_norm is not None:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), hp.tts_clip_grad_norm)
+                    if np.isnan(grad_norm):
+                        print('grad_norm was NaN!')
+                optimizer.step()
+                optimizer.zero_grad()
 
             running_loss_out += loss_out.item()
             avg_loss_out = running_loss_out / i
@@ -346,6 +373,8 @@ def tts_train_loop_af_online(paths: Paths, model: Tacotron, model_tf: Tacotron, 
 def tts_train_loop_af_offline(paths: Paths, model: Tacotron, optimizer, train_set, lr, train_steps, attn_example, hp=None):
     # setattr(model, 'mode', 'attention_forcing')
     # import pdb
+    if hp.tts_batch_acu>1:
+        raise NotImplementedError(f'gradient accumulation is not yet implemented')
 
     def smooth(d, eps = float(1e-10)):
         u = 1.0 / float(d.size()[2])

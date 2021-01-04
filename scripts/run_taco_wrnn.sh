@@ -4,7 +4,7 @@ unset LD_PRELOAD
 source activate p37_pt13_c10_tts
 
 ### gpu
-AIR_FORCE_GPU=0
+AIR_FORCE_GPU=1
 export MANU_CUDA_DEVICE=0 # 2,3 note on nausicaa no.2 is no.0
 # select gpu when not on air
 if [[ "$HOSTNAME" != *"air"* ]]  || [ $AIR_FORCE_GPU -eq 1 ]; then
@@ -131,8 +131,9 @@ hp_file=scripts/hparams_pass2_init_dev.py
 # python train_tacotron_pass2.py --hp_file $hp_file
 # python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention wavernn --voc_weights $voc_weights_gold --batched
 # tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_BS32_stepD1_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step54K_weights.pyt
-tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_BS128_stepD4_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step184K_weights.pyt
-python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_BS128_stepD4_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step320K_weights.pyt
+tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_BS32_stepD2_max80k_p1fr_frL1.2_re8_xAOy1.tacotron/pass2/taco_step40K_weights.pyt
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
 # python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched
 
 hp_file=scripts/hparams_pass2_init_gal.py
@@ -142,10 +143,50 @@ hp_file=scripts/hparams_pass2_init_gal.py
 # tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_fixBestP1_GAL100.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step12K_weights.pyt
 # tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_fixBestP1_GAL500.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step12K_weights.pyt
 # tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL1.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step24K_weights.pyt
-# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL10.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step56K_weights.pyt
-tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL100.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step24K_weights.pyt
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL10.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step12K_weights.pyt
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL100.0_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step4K_weights.pyt
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_pass2_nomask_fixBestP1_GAL10.0schedDiag_BS32_stepD2_max80k_p1fr_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step24K_weights.pyt
 # python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
 # python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_gv --skip_wav --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_delib_pass2.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_delib_shareEnc_init_pass2_BS32_stepD2_max80k_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step100K_weights.pyt
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_delib_pass2_xAOs1.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_delib_pass2_xAOs1_attn.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+
+hp_file=scripts/hparams_delib_pass2_xAOs1_attnAdv.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_delib_pass2_xAOs1_attnAdv_smartKV.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention wavernn --voc_weights $voc_weights_gold --batched
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_attnAdv_smartKV_pass2_BS32_stepD2_max80k_frL1.2_re8N16_xAOs1.tacotron/pass2/taco_step20K_weights.pyt
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_delib_pass2_xAOs1_attnAdv_smartKV_trainByGroup.py
+python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention wavernn --voc_weights $voc_weights_gold --batched
+
+
+hp_file=scripts/hparams_delib_pass2_xAOs1_attn_gal.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_attn_GAL1.0sched_pass2_BS32_stepD2_max80k_frL1.2_re8_xAOs1.tacotron/pass2/taco_step20K_weights.pyt
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
+
+hp_file=scripts/hparams_delib_pass2_gal.py
+# python train_tacotron_pass2.py --hp_file $hp_file
+# python gen_tacotron_multipass.py --hp_file $hp_file --use_standard_names --save_attention wavernn --voc_weights $voc_weights_gold --batched
+# tts_weights_pass2=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/mp_lj_delib_shareEnc_pass2_GAL10.0sched_BS32_stepD2_max80k_frL1.2_re4_xAOy1s1.tacotron/pass2/taco_step8K_weights.pyt
+# python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
 
 
 hp_file=scripts/hparams_multipass.py

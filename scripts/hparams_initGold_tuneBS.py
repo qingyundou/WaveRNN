@@ -7,8 +7,23 @@ data_path = 'data/'
 
 # model ids are separate - that way you can use a new tts with an old wavernn and vice versa
 # NB: expect undefined behaviour if models were trained on different DSP settings
-tts_batch_size = 64 # 32 64 100
-exp_id = f'lj_pretrainGold_bs{tts_batch_size}'
+# tts_batch_size = 100 # 32 64 100
+# tts_batch_acu = 1
+# _tts_adjust_steps = True
+# exp_id = f'lj_pretrainGold_bs{tts_batch_size}'
+
+tts_data_split = [-1, 250, 250]
+# exp_id = f'lj_v250t250_pretrainGold_bs{tts_batch_size}'
+
+tts_batch_size = 25
+tts_batch_acu = 4
+_tts_adjust_steps = True
+exp_id = f'lj_v250t250_pretrainGold_bs{tts_batch_size * tts_batch_acu}_stepD{tts_batch_acu}'
+
+
+tts_save_gv = False
+# tts_save_gv = True
+
 voc_model_id = exp_id + ''
 tts_model_id = exp_id + ''
 
@@ -93,15 +108,21 @@ tts_stop_threshold = -3.4           # Value below which audio generation ends.
 #                 (2,  1e-4, 40_000,  16),
 #                 (2,  1e-4, 80_000,  8)]
 
-tts_schedule = [(2,  1e-3,  10_000,  tts_batch_size),   # progressive training schedule
-                (2,  1e-3, 20_000,  tts_batch_size),   # (r, lr, step, batch_size)
-                (2,  1e-3, 40_000,  tts_batch_size),
-                (2,  1e-4, 80_000,  tts_batch_size)]
+# tts_schedule = [(2,  1e-3,  10_000,  tts_batch_size),   # progressive training schedule
+#                 (2,  1e-3, 20_000,  tts_batch_size),   # (r, lr, step, batch_size)
+#                 (2,  1e-3, 40_000,  tts_batch_size),
+#                 (2,  1e-4, 80_000,  tts_batch_size)]
+
+_tmp = 1 if not _tts_adjust_steps else tts_batch_acu
+tts_schedule = [(2,  1e-3,  10_000 * _tmp,  tts_batch_size),   # progressive training schedule
+                (2,  1e-3, 20_000 * _tmp,  tts_batch_size),   # (r, lr, step, batch_size)
+                (2,  1e-3, 40_000 * _tmp,  tts_batch_size),
+                (2,  1e-4, 80_000 * _tmp,  tts_batch_size)]
 
 tts_max_mel_len = 1250              # if you have a couple of extremely long spectrograms you might want to use this
 tts_bin_lengths = True              # bins the spectrogram lengths before sampling in data loader - speeds up training
 tts_clip_grad_norm = 1.0            # clips the gradient norm to prevent explosion - set to None if not needed
-tts_checkpoint_every = 2_000        # checkpoints the model every X steps
+tts_checkpoint_every = 2_000 * tts_batch_acu       # checkpoints the model every X steps
 tts_init_weights_path = '/home/dawna/tts/qd212/models/WaveRNN/quick_start/tts_weights/latest_weights.pyt' # initial weights, usually from a pretrained model
 # TODO: tts_phoneme_prob = 0.0              # [0 <-> 1] probability for feeding model phonemes vrs graphemes
 
@@ -111,11 +132,12 @@ mode = 'teacher_forcing'
 # Test
 # test_sentences_file = 'test_sentences/sentences.txt'
 # test_sentences_names = ['LJ001-0073', 'LJ010-0294', 'LJ020-0077', 'LJ030-0208', 'LJ040-0113']
-# test_sentences_file = 'test_sentences/sentences_espnet.txt'
-# test_sentences_names = ['LJ050-0029_gen', 'LJ050-0030_gen', 'LJ050-0031_gen', 'LJ050-0032_gen', 'LJ050-0033_gen']
+test_sentences_file = 'test_sentences/sentences_espnet.txt'
+test_sentences_names = ['LJ050-0029_gen', 'LJ050-0030_gen', 'LJ050-0031_gen', 'LJ050-0032_gen', 'LJ050-0033_gen']
 
-test_sentences_file = 'test_sentences/sentences_espnet_all250.txt'
-test_sentences_names = [f'LJ050-{29+i:04d}_gen' for i in range(250)]
+if tts_save_gv:
+    test_sentences_file = 'test_sentences/sentences_espnet_all250.txt'
+    test_sentences_names = [f'LJ050-{29+i:04d}_gen' for i in range(250)]
 
 # test_sentences_file = 'test_sentences/asup.txt'
 # test_sentences_names = ['LJ050-0033_gen']

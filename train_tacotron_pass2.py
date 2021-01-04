@@ -6,7 +6,8 @@ from utils.display import *
 from utils.dataset import get_tts_datasets
 from utils.text.symbols import symbols
 from utils.paths import Paths, Paths_multipass
-from models.tacotron import Tacotron, Tacotron_pass2, Tacotron_pass1
+from models.tacotron import Tacotron, Tacotron_pass2, Tacotron_pass1, Tacotron_pass2_concat, Tacotron_pass2_delib, Tacotron_pass2_delib_shareEnc, Tacotron_pass2_attn, Tacotron_pass2_attnAdv
+from models.tacotron import Tacotron_pass1_smartKV, Tacotron_pass2_attnAdv_smartKV
 import argparse
 from utils import data_parallel_workaround, set_global_seeds
 import os
@@ -33,6 +34,7 @@ def main():
     args = parser.parse_args()
 
     hp.configure(args.hp_file)  # Load hparams from file
+    hp.fix_compatibility()
     # paths = Paths(hp.data_path, hp.voc_model_id, hp.tts_model_id)
     paths = Paths_multipass(hp.data_path, hp.voc_model_id, hp.tts_model_id, 'pass1')
     paths_pass2 = Paths_multipass(hp.data_path, hp.voc_model_id, hp.tts_model_id, 'pass2')
@@ -56,7 +58,13 @@ def main():
 
     # Instantiate Tacotron Model & Tacotron_pass2 Model
     print('\nInitialising Tacotron Model...\n')
-    Taco = Tacotron_pass1 # if 's1' in hp.tts_pass2_input_train else Tacotron
+    # Taco = Tacotron_pass1 # if 's1' in hp.tts_pass2_input_train else Tacotron
+    Taco_dct = {'Tacotron':Tacotron, 'Tacotron_pass1':Tacotron_pass1, 'Tacotron_pass1_smartKV':Tacotron_pass1_smartKV}
+    Taco = Taco_dct[hp.tts_model_pass1]
+    # tmp_dct = {}
+    # if 'Tacotron_pass1' in hp.tts_model_pass1: tmp_dct['share_encoder'] = True
+    # if 'smartKV' in hp.tts_model_pass1: tmp_dct['output_context'] = True
+
     model = Taco(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
                      encoder_dims=hp.tts_encoder_dims,
@@ -71,9 +79,27 @@ def main():
                      dropout=hp.tts_dropout,
                      stop_threshold=hp.tts_stop_threshold,
                      mode=hp.tts_mode_train_pass1,
-                     fr_length_ratio=hp.tts_fr_length_ratio).to(device)
+                     fr_length_ratio=hp.tts_fr_length_ratio,
+                     share_encoder=hp.tts_pass2_delib_shareEnc).to(device)
 
-    model_pass2 = Tacotron_pass2(embed_dims=hp.tts_embed_dims,
+    Taco_p2 = Tacotron_pass2
+    if hp.tts_pass2_concat:
+        Taco_p2 = Tacotron_pass2_concat
+    if hp.tts_pass2_delib:
+        Taco_p2 = Tacotron_pass2_delib
+    if hp.tts_pass2_delib_shareEnc:
+        Taco_p2 = Tacotron_pass2_delib_shareEnc
+    if hp.tts_pass2_attn:
+        Taco_p2 = Tacotron_pass2_attn
+    if hp.tts_pass2_attnAdv:
+        Taco_p2 = Tacotron_pass2_attnAdv
+    Taco_p2_dct = {'Tacotron_pass2':Tacotron_pass2, 'Tacotron_pass2_concat':Tacotron_pass2_concat, 
+    'Tacotron_pass2_delib':Tacotron_pass2_delib, 'Tacotron_pass2_delib_shareEnc':Tacotron_pass2_delib_shareEnc, 
+    'Tacotron_pass2_attn':Tacotron_pass2_attn, 'Tacotron_pass2_attnAdv':Tacotron_pass2_attnAdv, 
+    'Tacotron_pass2_attnAdv_smartKV':Tacotron_pass2_attnAdv_smartKV}
+    if hp.tts_model_pass2 in Taco_p2_dct.keys(): Taco_p2 = Taco_p2_dct[hp.tts_model_pass2]
+
+    model_pass2 = Taco_p2(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
                      encoder_dims=hp.tts_encoder_dims,
                      decoder_dims=hp.tts_decoder_dims,
@@ -114,6 +140,16 @@ def main():
     # optimizer = optim.Adam(list(model.parameters()) + list(model_pass2.parameters()))
     optimizer = optim.Adam(model.parameters())
     optimizer_pass2 = optim.Adam(model_pass2.parameters())
+
+    # import pdb; pdb.set_trace()
+    # tmp=model_pass2.parameters()
+    # print(type(tmp), len(list(tmp)))
+    # tmp=model_pass2.named_parameters()
+    # print(type(tmp), len(dict(tmp)))
+    # tmp = optimizer_pass2.param_groups
+    # print(type(tmp), len(tmp), len(tmp[0]['params']))
+    # tmp_rg = [int(x.requires_grad) for x in tmp[0]['params']]
+    # print(tmp_rg)
 
 
     restore_checkpoint('tts', paths, model, optimizer, create_if_missing=True, init_weights_path=hp.tts_init_weights_path)
@@ -156,7 +192,12 @@ def main():
             current_step = model.get_step()
 
             r, lr, max_step, batch_size, *extension = session
-            if extension: hp.tts_extension_dct['input_prob_lst'] = extension[0]
+            if len(extension)>0: hp.tts_extension_dct['input_prob_lst'] = extension[0]
+            if len(extension)>1: hp.tts_extension_dct['gal_coeff'] = extension[1]
+            if len(extension)>2:
+                hp.tts_extension_dct['params_to_train'] = extension[2]
+                # optimizer_pass2 = update_optimizer(model_pass2, optimizer_pass2, hp.tts_extension_dct['params_to_train'])
+                update_model(model_pass2, hp.tts_extension_dct['params_to_train'])
 
             training_steps = max_step - current_step
 
@@ -183,7 +224,8 @@ def main():
                             ('Batch Accumulation', hp.tts_batch_acu),
                             ('Learning Rate', lr),
                             ('Outputs/Step (r)', model.r),
-                            ('p2_input_prob_lst', hp.tts_extension_dct['input_prob_lst'])])
+                            ('p2_input_prob_lst', hp.tts_extension_dct['input_prob_lst']),
+                            ('params_to_train', hp.tts_extension_dct['params_to_train'])])
 
             train_set, attn_example = get_tts_datasets(paths.data, batch_size, r)
             tts_train_loop(paths, paths_pass2, model, model_pass2, optimizer, optimizer_pass2, train_set, lr, training_steps, attn_example, 
@@ -203,9 +245,18 @@ def main():
     print('\n\nYou can now train WaveRNN on GTA features - use python train_wavernn.py --gta\n')
 
 
-def prepare_pass2_input(x, y_p1, s_p1, input_prob_lst):
+def prepare_pass2_input(x, y_p1, inter_p1, input_prob_lst):
     # unpack the flexible lst, if it is not empty
-    s_p1 = s_p1[0] if s_p1 else None
+    k_lst = ['s_p1', 'e_p1', 'e_p_p1', 'c_p1']
+    inter_p1_dct = {}
+    for i,v in enumerate(inter_p1):
+        inter_p1_dct[k_lst[i]] = v
+
+    # s_p1, e_p1, e_p_p1 = None, None, None
+    # nb_inter = len(inter_p1)
+    # if nb_inter>0: s_p1 = inter_p1[0]
+    # if nb_inter>1: e_p1 = inter_p1[1]
+    # if nb_inter>2: e_p_p1 = inter_p1[2]
 
     if sum(input_prob_lst)!=1: print(f'qd212 warning: input_prob_lst {input_prob_lst} doesnt sum to 1')
     p_x, p_y, p_both = [float(p) for p in input_prob_lst]
@@ -214,10 +265,75 @@ def prepare_pass2_input(x, y_p1, s_p1, input_prob_lst):
         pass
     elif np.random.uniform(high=p_both)<p_x:
         x = x * 0
+        if 'e_p1' in inter_p1_dct: inter_p1_dct['e_p1'] = inter_p1_dct['e_p1'] * 0
+        if 'e_p_p1' in inter_p1_dct: inter_p1_dct['e_p_p1'] = inter_p1_dct['e_p_p1'] * 0
+        # if (e_p1 is not None) and (e_p_p1 is not None): e_p1, e_p_p1 = e_p1*0, e_p_p1*0
     else:
         y_p1 = y_p1 * 0
-        if s_p1 is not None: s_p1 = s_p1 * 0
-    return x, y_p1, s_p1
+        if 's_p1' in inter_p1_dct: inter_p1_dct['s_p1'] = inter_p1_dct['s_p1'] * 0
+        # if s_p1 is not None: s_p1 = s_p1 * 0
+    return x, y_p1, inter_p1_dct
+
+def pass2_input_lst2mask(input_prob_lst):
+    if sum(input_prob_lst)!=1: print(f'qd212 warning: input_prob_lst {input_prob_lst} doesnt sum to 1')
+    p_mask_x, p_mask_y, p_mask_none = [float(p) for p in input_prob_lst]
+
+    input_mask_dct = {'input':1, 'output_p1':1}
+    if np.random.uniform(high=1.0)<p_mask_none:
+        pass
+    elif np.random.uniform(high=1-p_mask_none)<p_mask_x:
+        input_mask_dct['input'] = 0
+    else:
+        input_mask_dct['output_p1'] = 0
+    return input_mask_dct
+
+def prepare_pass2_input_w_mask(x, y_p1, inter_p1, input_mask_dct, mask_target='input'):
+    # unpack the flexible lst, if it is not empty
+    k_lst = ['s_p1', 'e_p1', 'e_p_p1', 'c_p1']
+    inter_p1_dct = {}
+    for i,v in enumerate(inter_p1):
+        inter_p1_dct[k_lst[i]] = v
+
+    input_mask_x, input_mask_y = input_mask_dct['input'], input_mask_dct['output_p1']
+    
+    if mask_target=='input':
+        x = x * input_mask_x
+        if 'e_p1' in inter_p1_dct: inter_p1_dct['e_p1'] = inter_p1_dct['e_p1'] * input_mask_x
+        if 'e_p_p1' in inter_p1_dct: inter_p1_dct['e_p_p1'] = inter_p1_dct['e_p_p1'] * input_mask_x
+        y_p1 = y_p1 * input_mask_y
+        if 's_p1' in inter_p1_dct: inter_p1_dct['s_p1'] = inter_p1_dct['s_p1'] * input_mask_y
+
+    elif mask_target=='context':
+        inter_p1_dct['input_mask_x'] = input_mask_x
+        inter_p1_dct['input_mask_y'] = input_mask_y
+
+    return x, y_p1, inter_p1_dct
+
+def update_optimizer(model, optimizer, group_name_lst):
+    if 'all' in group_name_lst:
+        params_lst = [ p for p in model.parameters() ]
+    else:
+        params_lst = [ p for n, p in model.named_parameters() if 'decoder.' in n ]
+        if 'enc_vc0' in group_name_lst:
+            params_lst += [ p for n, p in model.named_parameters() if 'encoder_vc.' in n or 'encoder_proj_vc.' in n ]
+        if 'enc_vc1' in group_name_lst:
+            params_lst += [ p for n, p in model.named_parameters() if 'encoder_vc_global.' in n or 'encoder_proj_vc_global.' in n ]
+    optimizer.param_groups[0]['params'] = params_lst
+    return optimizer
+
+def update_model(model, group_name_lst):
+    if 'all' in group_name_lst:
+        n_lst = [ n for n, p in model.named_parameters() ]
+    else:
+        n_lst = [ n for n, p in model.named_parameters() if 'decoder.' in n]
+        if 'enc_vc0' in group_name_lst:
+            n_lst += [ n for n, p in model.named_parameters() if 'encoder_vc.' in n or 'encoder_proj_vc.' in n]
+        if 'enc_vc1' in group_name_lst:
+            n_lst += [ n for n, p in model.named_parameters() if 'encoder_vc_global.' in n or 'encoder_proj_vc_global.' in n]
+
+    for n, p in model.named_parameters():
+        p.requires_grad = True if n in n_lst else False
+    # return model
 
 
 def tts_train_loop(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, 
@@ -237,7 +353,6 @@ def tts_train_loop(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass
 
 def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_pass2: Tacotron_pass2, optimizer, optimizer_pass2, train_set, lr, train_steps, attn_example):
     # import pdb; pdb.set_trace()
-    # model.mode = hp.mode_pass1 # 'free_running', asup
 
     device = next(model.parameters()).device  # use same device as model parameters
 
@@ -253,6 +368,7 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
 
         # optimizer.zero_grad()
         optimizer_pass2.zero_grad()
+        input_mask_dct = pass2_input_lst2mask(hp.tts_extension_dct['input_prob_lst'])
 
         # Perform 1 epoch
         for i, (x, m, ids, _) in enumerate(train_set, 1):
@@ -265,23 +381,26 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
                 m1_hat, m2_hat, attention = data_parallel_workaround(model, x, m)
             else:
                 # pass1
-                with torch.no_grad(): _, m2_hat, attention, *s_p1 = model(x, m)
+                with torch.no_grad(): _, m2_hat, attention, *inter_p1 = model(x, m)
 
                 # mask
-                x, m2_hat, s_p1 = prepare_pass2_input(x, m2_hat, s_p1, hp.tts_extension_dct['input_prob_lst'])
+                # x, m2_hat, inter_p1_dct = prepare_pass2_input(x, m2_hat, inter_p1, hp.tts_extension_dct['input_prob_lst'])
+                x, m2_hat, inter_p1_dct = prepare_pass2_input_w_mask(x, m2_hat, inter_p1, input_mask_dct, hp.tts_mask_target)
+                # for k,v in inter_p1_dct.items():
+                #     print(k, v.size())
                 # import pdb; pdb.set_trace()
 
                 # pass 2
-                m1_hat_p2, m2_hat_p2, attention_p2, attention_vc = model_pass2(x, m, m2_hat, s_p1=s_p1)
+                m1_hat_p2, m2_hat_p2, attention_p2, *attention_vc_lst = model_pass2(x, m, m2_hat, **inter_p1_dct)
 
             # print(x.size())
             # print(m.size())
             # print(m2_hat.size())
             # print(m1_hat_p2.size(), m2_hat_p2.size())
             # print(attention_p2.size(), attention_p2.size(1)*model.r)
-            # print(attention_vc.size(), attention_vc.size(1)*model.r)
+            # for attention_vc in attention_vc_lst:
+            #     print(attention_vc.size(), attention_vc.size(1)*model.r)
             # pdb.set_trace()
-            # import pdb; pdb.set_trace()
 
             m1_loss = F.l1_loss(m1_hat_p2, m)
             m2_loss = F.l1_loss(m2_hat_p2, m)
@@ -299,8 +418,9 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
             loss.backward()
             if (i+1)%hp.tts_batch_acu == 0:
                 # grad = model_pass2.encoder.embedding.weight.grad
-                # print(grad.size())
-                # print(grad[0, :3])
+                # grad = model_pass2.decoder.attn_net.L.weight.grad
+                # grad = model_pass2.postnet.conv_project1.conv.weight #.grad
+                # print(grad.size(), grad[0, :3])
                 # pdb.set_trace()
                 # clip grad only once before updating the params with step()
                 if hp.tts_clip_grad_norm is not None:
@@ -309,6 +429,7 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
                         print('grad_norm was NaN!')
                 optimizer_pass2.step()
                 optimizer_pass2.zero_grad()
+                input_mask_dct = pass2_input_lst2mask(hp.tts_extension_dct['input_prob_lst'])
 
             running_loss += loss.item() * hp.tts_batch_acu
             avg_loss = running_loss / i
@@ -329,14 +450,14 @@ def tts_train_loop_tf(paths: Paths, paths_pass2: Paths, model: Tacotron, model_p
                 idx = ids.index(attn_example)
                 save_attention(np_now(attention[idx][:, :160]), paths.tts_attention/f'{step}_text_p1')
                 save_attention(np_now(attention_p2[idx][:, :160]), paths.tts_attention/f'{step}_text_p2')
-                save_attention(np_now(attention_vc[idx][:, :]), paths.tts_attention/f'{step}_speech')
+                for tmp_i, attention_vc in enumerate(attention_vc_lst):
+                    save_attention(np_now(attention_vc[idx][:, :]), paths.tts_attention/f'{step}_speech_{tmp_i}')
                 save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_p1', 600)
                 save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_p2', 600)
-            for idx, tmp in enumerate(ids):
-                # import pdb; pdb.set_trace()
-                if tmp in ['LJ035-0011', 'LJ016-0320']: # selected egs
-                    save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p1')
-                    save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p2')
+            # for idx, tmp in enumerate(ids):
+            #     if tmp in ['LJ035-0011', 'LJ016-0320']: # selected egs
+            #         save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p1')
+            #         save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p2')
 
             msg = f'| Epoch: {e}/{epochs} ({i}/{total_iters}) | Loss: {avg_loss:#.4} | {speed:#.2} steps/s | Step: {k}k | '
             stream(msg)
@@ -381,14 +502,14 @@ def tts_train_loop_tf_gal(paths: Paths, paths_pass2: Paths, model: Tacotron, mod
                 _, m2_hat, attention = data_parallel_workaround(model, x, m)
             else:
                 # pass1
-                with torch.no_grad(): _, m2_hat, attention, *s_p1 = model(x, m)
+                with torch.no_grad(): _, m2_hat, attention, *inter_p1 = model(x, m)
 
                 # mask
-                x, m2_hat, s_p1 = prepare_pass2_input(x, m2_hat, s_p1, hp.tts_extension_dct['input_prob_lst'])
-                # import pdb; pdb.set_trace()
+                x, m2_hat, inter_p1_dct = prepare_pass2_input(x, m2_hat, inter_p1, hp.tts_extension_dct['input_prob_lst'])
 
                 # pass2
-                m1_hat_p2, m2_hat_p2, attention_p2, attention_vc = model_pass2(x, m, m2_hat, s_p1=s_p1)
+                m1_hat_p2, m2_hat_p2, attention_p2, *attention_vc_lst = model_pass2(x, m, m2_hat, **inter_p1_dct)
+                attention_vc = attention_vc_lst[0]
 
             # print(x.size())
             # print(m.size())
@@ -418,12 +539,18 @@ def tts_train_loop_tf_gal(paths: Paths, paths_pass2: Paths, model: Tacotron, mod
             # print(m2_hat.size(-1) / float(m.size(-1)))
             ilens[ilens==torch.max(ilens)] = attention_vc.size(2)
             olens[olens==torch.max(olens)] = attention_vc.size(1)
+            # if hp.tts_bin_lengths:
+            #     ilens[:] = attention_vc.size(2)
+            #     olens[:] = attention_vc.size(1)
+            # else:
+            #     ilens[ilens==torch.max(ilens)] = attention_vc.size(2)
+            #     olens[olens==torch.max(olens)] = attention_vc.size(1)
             # print(ilens)
             # print(olens)
             # pdb.set_trace()
             loss_gal = guided_attn_loss(attention_vc, ilens, olens)
 
-            loss = loss_y + loss_gal
+            loss = loss_y + loss_gal * hp.tts_extension_dct['gal_coeff']
 
             (loss / hp.tts_batch_acu).backward()
             if (i+1)%hp.tts_batch_acu == 0:
@@ -431,6 +558,7 @@ def tts_train_loop_tf_gal(paths: Paths, paths_pass2: Paths, model: Tacotron, mod
                     grad_norm = torch.nn.utils.clip_grad_norm_(model_pass2.parameters(), hp.tts_clip_grad_norm)
                     if np.isnan(grad_norm):
                         print('grad_norm was NaN!')
+                        import pdb; pdb.set_trace()
                 optimizer_pass2.step()
                 optimizer_pass2.zero_grad()
 
@@ -455,16 +583,18 @@ def tts_train_loop_tf_gal(paths: Paths, paths_pass2: Paths, model: Tacotron, mod
                 idx = ids.index(attn_example)
                 save_attention(np_now(attention[idx][:, :160]), paths.tts_attention/f'{step}_text_p1')
                 save_attention(np_now(attention_p2[idx][:, :160]), paths.tts_attention/f'{step}_text_p2')
-                save_attention(np_now(attention_vc[idx][:, :]), paths.tts_attention/f'{step}_speech')
+                for tmp_i, attention_vc in enumerate(attention_vc_lst):
+                    save_attention(np_now(attention_vc[idx][:, :]), paths.tts_attention/f'{step}_speech_{tmp_i}')
                 save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_p1', 600)
                 save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_p2', 600)
-            for idx, tmp in enumerate(ids):
-                # import pdb; pdb.set_trace()
-                if tmp in ['LJ035-0011', 'LJ016-0320']: # selected egs
-                    save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p1')
-                    save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p2')
+            # for idx, tmp in enumerate(ids):
+            #     # import pdb; pdb.set_trace()
+            #     if tmp in ['LJ035-0011', 'LJ016-0320']: # selected egs
+            #         save_spectrogram(np_now(m2_hat[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p1')
+            #         save_spectrogram(np_now(m2_hat_p2[idx]), paths.tts_mel_plot/f'{step}_{tmp}_p2')
 
-            msg = f'| Epoch: {e}/{epochs} ({i}/{total_iters}) | Loss: {avg_loss:#.4} | Guided attn loss: {avg_loss_gal:#.4} | {speed:#.2} steps/s | Step: {k}k | '
+            tmp = hp.tts_extension_dct['gal_coeff']
+            msg = f'| Epoch: {e}/{epochs} ({i}/{total_iters}) | Loss: {avg_loss:#.4} | Guided attn loss: {avg_loss_gal:#.4} * {tmp} | {speed:#.2} steps/s | Step: {k}k | '
             stream(msg)
 
         # Must save latest optimizer state to ensure that resuming training

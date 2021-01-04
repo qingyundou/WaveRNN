@@ -3,7 +3,8 @@ from models.fatchord_version import WaveRNN
 from utils import hparams as hp
 from utils.text.symbols import symbols
 from utils.paths import Paths, Paths_multipass
-from models.tacotron import Tacotron, Tacotron_pass2, Tacotron_pass1
+from models.tacotron import Tacotron, Tacotron_pass2, Tacotron_pass1, Tacotron_pass2_concat, Tacotron_pass2_delib, Tacotron_pass2_delib_shareEnc, Tacotron_pass2_attn, Tacotron_pass2_attnAdv
+from models.tacotron import Tacotron_pass1_smartKV, Tacotron_pass2_attnAdv_smartKV
 import argparse
 from utils.text import text_to_sequence
 from utils.display import save_attention, simple_table, save_spectrogram
@@ -11,6 +12,7 @@ from utils.dsp import reconstruct_waveform, save_wav
 import numpy as np
 import os
 from utils import get_gv
+from train_tacotron_pass2 import prepare_pass2_input
 
 if __name__ == "__main__":
 
@@ -54,6 +56,7 @@ if __name__ == "__main__":
         raise argparse.ArgumentError('Must provide a valid vocoder type!')
 
     hp.configure(args.hp_file)  # Load hparams from file
+    hp.fix_compatibility()
     # set defaults for any arguments that depend on hparams
     if args.vocoder == 'wavernn':
         if args.target is None:
@@ -107,7 +110,9 @@ if __name__ == "__main__":
     print('\nInitialising Tacotron Model...\n')
 
     # Instantiate Tacotron Model
-    Taco = Tacotron_pass1 if 's1' in hp.tts_pass2_input_train else Tacotron
+    # Taco = Tacotron_pass1 if 's1' in hp.tts_pass2_input_train else Tacotron
+    Taco_dct = {'Tacotron':Tacotron, 'Tacotron_pass1':Tacotron_pass1, 'Tacotron_pass1_smartKV':Tacotron_pass1_smartKV}
+    Taco = Taco_dct[hp.tts_model_pass1]
     tts_model = Taco(embed_dims=hp.tts_embed_dims,
                          num_chars=len(symbols),
                          encoder_dims=hp.tts_encoder_dims,
@@ -121,7 +126,8 @@ if __name__ == "__main__":
                          num_highways=hp.tts_num_highways,
                          dropout=hp.tts_dropout,
                          stop_threshold=hp.tts_stop_threshold,
-                         mode=hp.tts_mode_gen_pass1,).to(device)
+                         mode=hp.tts_mode_gen_pass1,
+                         share_encoder=hp.tts_pass2_delib_shareEnc).to(device)
 
     # tts_model.load(hp.tts_init_weights_path)
     # for i, (name, param) in enumerate(tts_model.named_parameters()):
@@ -138,7 +144,23 @@ if __name__ == "__main__":
     #     if i>1: break
     # import pdb; pdb.set_trace()
 
-    tts_model_pass2 = Tacotron_pass2(embed_dims=hp.tts_embed_dims,
+    Taco_p2 = Tacotron_pass2
+    if hp.tts_pass2_concat:
+        Taco_p2 = Tacotron_pass2_concat
+    if hp.tts_pass2_delib:
+        Taco_p2 = Tacotron_pass2_delib
+    if hp.tts_pass2_delib_shareEnc:
+        Taco_p2 = Tacotron_pass2_delib_shareEnc
+    if hp.tts_pass2_attn:
+        Taco_p2 = Tacotron_pass2_attn
+    if hp.tts_pass2_attnAdv:
+        Taco_p2 = Tacotron_pass2_attnAdv
+    Taco_p2_dct = {'Tacotron_pass2':Tacotron_pass2, 'Tacotron_pass2_concat':Tacotron_pass2_concat, 
+    'Tacotron_pass2_delib':Tacotron_pass2_delib, 'Tacotron_pass2_delib_shareEnc':Tacotron_pass2_delib_shareEnc, 
+    'Tacotron_pass2_attn':Tacotron_pass2_attn, 'Tacotron_pass2_attnAdv':Tacotron_pass2_attnAdv, 
+    'Tacotron_pass2_attnAdv_smartKV':Tacotron_pass2_attnAdv_smartKV}
+    if hp.tts_model_pass2 in Taco_p2_dct.keys(): Taco_p2 = Taco_p2_dct[hp.tts_model_pass2]
+    tts_model_pass2 = Taco_p2(embed_dims=hp.tts_embed_dims,
                      num_chars=len(symbols),
                      encoder_dims=hp.tts_encoder_dims,
                      decoder_dims=hp.tts_decoder_dims,
@@ -194,28 +216,33 @@ if __name__ == "__main__":
     for i, x in enumerate(inputs, 1):
 
         print(f'\n| Generating {i}/{len(inputs)}')
-        if 's1' in hp.tts_pass2_input_train:
-            _, m, attention, s = tts_model.generate(x)
-        else:
-            _, m, attention = tts_model.generate(x)
+        _, m, attention, *inter_p1 = tts_model.generate(x)
         # print(m)
         # print(m.size())
         # print(m.unsqueeze().size())
+        # for i in inter_p1:
+        #     print(i.size())
         # import pdb; pdb.set_trace()
 
+        # if 'x' not in hp.tts_pass2_input_gen:
+        #     x = [0 for x_i in x]
+        # if 'y1' not in hp.tts_pass2_input_gen:
+        #     m = m * 0
+        #     if 's1' in hp.tts_pass2_input_train: s = s * 0
+
+        input_prob_lst = [0., 0., 1.]
         if 'x' not in hp.tts_pass2_input_gen:
-            x = [0 for x_i in x]
-        if 'y1' not in hp.tts_pass2_input_gen:
-            m = m * 0
-            if 's1' in hp.tts_pass2_input_train: s = s * 0
+            input_prob_lst = [0., 1., 0.]
+        if 'y1' not in hp.tts_pass2_input_gen and 's1' not in hp.tts_pass2_input_gen:
+            input_prob_lst = [1., 0., 0.]
 
-        # m = torch.tensor(m).unsqueeze(0).to(device)
-        # _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device))
+        x, m, inter_p1_dct = prepare_pass2_input(x, m, [i.to(device) for i in inter_p1], input_prob_lst)
+        _, m_p2, attention_p2, *attention_vc_lst = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device), **inter_p1_dct)
 
-        if 's1' in hp.tts_pass2_input_train:
-            _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device), s)
-        else:
-            _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device))
+        # if 's1' in hp.tts_pass2_input_train:
+        #     _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device), s)
+        # else:
+        #     _, m_p2, attention_p2, attention_vc = tts_model_pass2.generate(x, torch.tensor(m).unsqueeze(0).to(device))
 
         # Fix mel spectrogram scaling to be from 0 to 1
         m = (m + 4) / 8
@@ -241,7 +268,8 @@ if __name__ == "__main__":
         if save_attn:
             save_attention(attention, save_path.parent/(save_path.stem+'_attn_p1'))
             save_attention(attention_p2, save_path.parent/(save_path.stem+'_attn_p2'))
-            save_attention(attention_vc, save_path.parent/(save_path.stem+'_attn_vc'))
+            for tmp_i, attention_vc in enumerate(attention_vc_lst):
+                save_attention(attention_vc, save_path.parent/(save_path.stem+f'_attn_vc_{tmp_i}'))
 
         if save_mel:
             save_spectrogram(m, str(save_path).replace('.wav', '_p1'), 600)

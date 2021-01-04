@@ -60,7 +60,7 @@ tts_batch_acu = 1
 
 tts_batch_size = 32 # 32 64 100
 tts_batch_acu = 4
-exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
+# exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
 
 # tts_pass2_input_train = 'xAOy1'
 # tts_pass2_input_gen = 'xNy1'
@@ -68,13 +68,13 @@ exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{t
 # tts_batch_acu = 2
 # exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re4_{tts_pass2_input_train}'
 
-# tts_pass2_input_train = 'xAOy1'
-# tts_pass2_input_gen = 'xNy1'
-# tts_batch_size = 16 # 32 64 100
-# tts_batch_acu = 2
-# tts_encoder_reduction_factor = 8
-# tts_encoder_reduction_factor_s = tts_encoder_reduction_factor // 2 # quick fix
-# exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re{tts_encoder_reduction_factor}_{tts_pass2_input_train}'
+tts_pass2_input_train = 'xAOy1'
+tts_pass2_input_gen = 'xNy1'
+tts_batch_size = 16 # 32 64 100
+tts_batch_acu = 2
+tts_encoder_reduction_factor = 8
+tts_encoder_reduction_factor_s = tts_encoder_reduction_factor // 2 # quick fix
+exp_id = f'mp_lj_pass2_nomask_fixBestP1_BS{tts_batch_size*tts_batch_acu}_stepD{tts_batch_acu}_max80k_p1fr_frL{tts_fr_length_ratio}_re{tts_encoder_reduction_factor}_{tts_pass2_input_train}'
 
 _tmp = 1 if not _tts_adjust_steps else tts_batch_acu
 tts_schedule = [(2,  1e-3, 10_000 * _tmp,  tts_batch_size, [1, 0, 0]),   # progressive training schedule
@@ -88,7 +88,8 @@ tts_save_gv = False
 # tts_save_gv = True
 
 
-
+tts_pass2_concat = False
+tts_pass2_delib = False
 
 voc_model_id = exp_id + ''
 tts_model_id = exp_id + ''

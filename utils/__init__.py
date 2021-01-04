@@ -97,7 +97,10 @@ class __HParams:
     ### qd212: fix compatibility, as new attrs are added
     def fix_compatibility(self):
         new_attr_dct = {'mode': 'teacher_forcing', 
-        'test_sentences_file': 'test_sentences/sentences.txt'}
+        'tts_batch_acu': 1, '_tts_adjust_steps': False,
+        'test_sentences_file': 'test_sentences/sentences.txt',
+        'tts_pass2_concat': False, 'tts_pass2_delib': False, 'tts_pass2_delib_shareEnc': False, 'tts_pass2_attn': False, 'tts_pass2_attnAdv': False,
+        'tts_data_split': [-1,0,0], 'tts_extension_dct': {'params_to_train':['all']}, 'tts_mask_target': 'input'}
         for key, value in new_attr_dct.items():
             if not hasattr(self, key): setattr(self, key, value)
 
