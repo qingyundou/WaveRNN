@@ -18,6 +18,8 @@ tts_batch_acu = 2
 _tts_adjust_steps = True
 exp_id = f'lj_v250t250_af_online_kl1.0_bs{tts_batch_size * tts_batch_acu}_stepD{tts_batch_acu}'
 
+# exp_id = f'asup'
+
 tts_save_gv = False
 # tts_save_gv = True
 
@@ -27,6 +29,9 @@ tts_model_id = exp_id + ''
 # set this to True if you are only interested in WaveRNN
 ignore_tts = False
 ignore_voc = True
+
+# ignore_tts = True
+# ignore_voc = False
 
 # random seed
 random_seed = 16
@@ -62,11 +67,11 @@ voc_res_out_dims = 128
 voc_res_blocks = 10
 
 # Training
-voc_batch_size = 32
+voc_batch_size = 100
 voc_lr = 1e-4
 voc_checkpoint_every = 25_000
 voc_gen_at_checkpoint = 5           # number of samples to generate at each checkpoint
-voc_total_steps = 50_000         # Total number of training steps
+voc_total_steps = 500_000         # Total number of training steps
 voc_test_samples = 50               # How many unseen samples to put aside for testing
 voc_pad = 2                         # this will pad the input so that the resnet can 'see' wider than input length
 voc_seq_len = hop_length * 5        # must be a multiple of hop_length
@@ -135,6 +140,8 @@ model_tf_path = tts_init_weights_path
 # test_sentences_names = ['LJ001-0073', 'LJ010-0294', 'LJ020-0077', 'LJ030-0208', 'LJ040-0113']
 test_sentences_file = 'test_sentences/sentences_espnet.txt'
 test_sentences_names = ['LJ050-0029_gen', 'LJ050-0030_gen', 'LJ050-0031_gen', 'LJ050-0032_gen', 'LJ050-0033_gen']
+# test_sentences_file = 'test_sentences/sentences_espnet_100_proc.txt'
+# test_sentences_names = [f'LJ050-{29+i:04d}_gen' for i in range(100)]
 
 if tts_save_gv:
     test_sentences_file = 'test_sentences/sentences_espnet_all250.txt'

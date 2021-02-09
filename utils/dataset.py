@@ -1,7 +1,7 @@
 import pickle
 import random
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, ConcatDataset
 from torch.utils.data.sampler import Sampler
 from utils.dsp import *
 from utils import hparams as hp
@@ -23,7 +23,7 @@ class VocoderDataset(Dataset):
         self.mel_path = path/'gta' if train_gta else path/'mel'
         if train_gta and (voc_model_id != ''):
             self.mel_path = path/f'gta_{voc_model_id}' # train NV for a sepcific Taco
-            print(f'using conditioning vectors at {self.mel_path}')
+        print(f'using conditioning vectors at {self.mel_path}')
         self.quant_path = path/'quant'
 
 
@@ -37,7 +37,7 @@ class VocoderDataset(Dataset):
         return len(self.metadata)
 
 
-def get_vocoder_datasets(path: Path, batch_size, train_gta, voc_model_id=''):
+def get_vocoder_datasets(path: Path, batch_size, train_gta, voc_model_id='', data_split=[-1,0,0]):
 
     with open(path/'dataset.pkl', 'rb') as f:
         dataset = pickle.load(f)
@@ -47,8 +47,13 @@ def get_vocoder_datasets(path: Path, batch_size, train_gta, voc_model_id=''):
     random.seed(1234)
     random.shuffle(dataset_ids)
 
-    test_ids = dataset_ids[-hp.voc_test_samples:]
-    train_ids = dataset_ids[:-hp.voc_test_samples]
+    if data_split==[-1,0,0]:
+        test_ids = dataset_ids[-hp.voc_test_samples:]
+        train_ids = dataset_ids[:-hp.voc_test_samples]
+    else:
+        v_t_id_lst = get_v_t_id_lst(dataset, data_split)
+        test_ids = v_t_id_lst[-data_split[2]:]
+        train_ids = [x for x in dataset_ids if x not in v_t_id_lst]
 
     train_dataset = VocoderDataset(path, train_ids, train_gta, voc_model_id)
     test_dataset = VocoderDataset(path, test_ids, train_gta, voc_model_id)
@@ -68,6 +73,48 @@ def get_vocoder_datasets(path: Path, batch_size, train_gta, voc_model_id=''):
 
     return train_set, test_set
 
+
+def get_vocoder_datasets_gtaNnat(path: Path, batch_size, train_gta, voc_model_id='', data_split=[-1,0,0]):
+
+    with open(path/'dataset.pkl', 'rb') as f:
+        dataset = pickle.load(f)
+
+    dataset_ids = [x[0] for x in dataset]
+
+    random.seed(1234)
+    random.shuffle(dataset_ids)
+
+    if data_split==[-1,0,0]:
+        test_ids = dataset_ids[-hp.voc_test_samples:]
+        train_ids = dataset_ids[:-hp.voc_test_samples]
+    else:
+        v_t_id_lst = get_v_t_id_lst(dataset, data_split)
+        test_ids = v_t_id_lst[-data_split[2]:]
+        train_ids = [x for x in dataset_ids if x not in v_t_id_lst]
+
+    # if train_gtaNnat:
+    #     assert train_gta, 'train_gtaNnat is True but train_gta is False, check hp'
+    train_dataset_natural = VocoderDataset(path, train_ids, False, voc_model_id)
+    train_dataset_gen = VocoderDataset(path, train_ids, True, voc_model_id)
+    train_dataset = torch.utils.data.ConcatDataset([train_dataset_natural, train_dataset_gen])
+    # else:
+    #     train_dataset = VocoderDataset(path, train_ids, train_gta, voc_model_id)
+    test_dataset = VocoderDataset(path, test_ids, train_gta, voc_model_id)
+
+    train_set = DataLoader(train_dataset,
+                           collate_fn=collate_vocoder,
+                           batch_size=batch_size,
+                           num_workers=2,
+                           shuffle=True,
+                           pin_memory=True)
+
+    test_set = DataLoader(test_dataset,
+                          batch_size=1,
+                          num_workers=1,
+                          shuffle=False,
+                          pin_memory=True)
+
+    return train_set, test_set
 
 def collate_vocoder(batch):
     mel_win = hp.voc_seq_len // hp.hop_length + 2 * hp.voc_pad
@@ -167,13 +214,14 @@ class TTSDataset(Dataset):
         self.path = path
         self.metadata = dataset_ids
         self.text_dict = text_dict
+        print(f'using (reference) feature vectors at {self.path}')
 
     def __getitem__(self, index):
         item_id = self.metadata[index]
         x = text_to_sequence(self.text_dict[item_id], hp.tts_cleaner_names)
         mel = np.load(self.path/'mel'/f'{item_id}.npy')
         mel_len = mel.shape[-1]
-        if hp.mode in ['teacher_forcing', 'attention_forcing_online']:
+        if hp.mode in ['teacher_forcing', 'attention_forcing_online', 'scheduled_sampling']:
             return x, mel, item_id, mel_len
         elif hp.mode == 'attention_forcing_offline':
             attn_ref = np.load(self.path/hp.attn_ref_path/f'{item_id}.npy')
@@ -240,7 +288,7 @@ def collate_tts(batch, r):
     # scale spectrograms to -4 <--> 4
     mel = (mel * 8.) - 4.
 
-    if hp.mode in ['teacher_forcing', 'attention_forcing_online']:
+    if hp.mode in ['teacher_forcing', 'attention_forcing_online', 'scheduled_sampling']:
         return chars, mel, ids, mel_lens
     elif hp.mode == 'attention_forcing_offline':
         # raise NotImplementedError(f'hp.mode={hp.mode} is not yet implemented')

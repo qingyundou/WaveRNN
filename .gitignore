@@ -1,5 +1,9 @@
 # data
+asup/
+bkup/
 data/
+data-200hz/
+test_sentences/
 checkpoints/
 model_outputs/
 quick_start/

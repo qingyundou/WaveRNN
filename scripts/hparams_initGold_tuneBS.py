@@ -134,6 +134,8 @@ mode = 'teacher_forcing'
 # test_sentences_names = ['LJ001-0073', 'LJ010-0294', 'LJ020-0077', 'LJ030-0208', 'LJ040-0113']
 test_sentences_file = 'test_sentences/sentences_espnet.txt'
 test_sentences_names = ['LJ050-0029_gen', 'LJ050-0030_gen', 'LJ050-0031_gen', 'LJ050-0032_gen', 'LJ050-0033_gen']
+# test_sentences_file = 'test_sentences/sentences_espnet_100_proc.txt'
+# test_sentences_names = [f'LJ050-{29+i:04d}_gen' for i in range(100)]
 
 if tts_save_gv:
     test_sentences_file = 'test_sentences/sentences_espnet_all250.txt'

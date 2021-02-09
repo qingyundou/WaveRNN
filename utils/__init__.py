@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Union
 
 import numpy as np
+import os
 
 # Credit: Ryuichi Yamamoto (https://github.com/r9y9/wavenet_vocoder/blob/1717f145c8f8c0f3f85ccdf346b5209fa2e1c920/train.py#L599)
 # Modified by: Ryan Butler (https://github.com/TheButlah)
@@ -96,7 +97,7 @@ class __HParams:
 
     ### qd212: fix compatibility, as new attrs are added
     def fix_compatibility(self):
-        new_attr_dct = {'mode': 'teacher_forcing', 
+        new_attr_dct = {'random_seed': 16, 'mode': 'teacher_forcing', 
         'tts_batch_acu': 1, '_tts_adjust_steps': False,
         'test_sentences_file': 'test_sentences/sentences.txt',
         'tts_pass2_concat': False, 'tts_pass2_delib': False, 'tts_pass2_delib_shareEnc': False, 'tts_pass2_attn': False, 'tts_pass2_attnAdv': False,
@@ -156,3 +157,18 @@ def get_gv(data):
     """
     gv_dim_lst = [np.var(d) for d in data]
     return np.mean(gv_dim_lst)
+
+
+def reserve_memory(device_id=0):
+    # import pdb; pdb.set_trace()
+    total, used = os.popen('"nvidia-smi" --query-gpu=memory.total,memory.used \
+        --format=csv,nounits,noheader').read().split('\n')[device_id].split(",")
+
+    total = int(total)
+    used = int(used)
+
+    max_mem = int(total * 0.85)
+    block_mem = max_mem - used
+
+    x = torch.rand((256,1024,block_mem)).cuda()
+    x = torch.rand((2,2)).cuda()

@@ -1,7 +1,14 @@
 ### env
 unset LD_PRELOAD
+export PATH=/home/dawna/tts/qd212/anaconda2/bin/:$PATH
 # source activate p37_pt11_c9_tts
 source activate p37_pt13_c10_tts
+
+# export PATH=/home/miproj/4thyr.oct2020/zs323/miniconda3/bin/:$PATH
+# source activate env1
+# export PYTHONBIN=/home/miproj/4thyr.oct2020/zs323/miniconda3/envs/env1/bin/python3
+# # source activate env3.7
+# # export PYTHONBIN=/home/miproj/4thyr.oct2020/zs323/miniconda3/envs/env3.7/bin/python3
 
 ### gpu
 AIR_FORCE_GPU=1
@@ -19,10 +26,19 @@ EXP_DIR=/home/dawna/tts/qd212/models/WaveRNN
 cd $EXP_DIR
 
 ### exp
+# ------------------------------------------------- process data
+hp_file=scripts/hparams_200hz.py
+# python preprocess.py --hp_file $hp_file
+
 # ------------------------------------------------- tf
 
 ## default setting: Taco + WRNN
 voc_weights_gold=/home/dawna/tts/qd212/models/WaveRNN/quick_start/voc_weights/latest_weights.pyt
+voc_weights_tfnv100hz=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_pretrainGold.wavernn/wave_step450K_weights.pyt
+voc_weights_afnv100hz=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_af_online_kl1.0_bs100_stepD2.wavernn/wave_step500K_weights.pyt
+voc_weights_asnv200hz=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_asnv_bs100.wavernn/wave_step975K_weights.pyt
+voc_weights_tfnv200hz=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_bs100_stepD5.wavernn/wave_step500K_weights.pyt
+voc_weights_afnv200hz=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_af_bs100_stepD2_initAF100hz_noDropout.wavernn/wave_step225K_weights.pyt
 
 ## default: Taco + NV
 # voc_weights=/home/dawna/tts/qd212/models/WaveRNN/quick_start/voc_weights/latest_weights.pyt
@@ -46,15 +62,21 @@ hp_file=scripts/hparams_init.py
 hp_file=scripts/hparams_initGold.py
 # voc_weights=${EXP_DIR}/checkpoints/ljspeech_mol.wavernn/wave_step1000K_weights.pyt
 # voc_weights=${EXP_DIR}/checkpoints/lj_pretrainGold.wavernn/wave_step50K_weights.pyt
+# voc_weights=${EXP_DIR}/checkpoints/lj_pretrainGold.wavernn/wave_step450K_weights.pyt
 # python train_tacotron.py --hp_file $hp_file
 # python train_wavernn.py --hp_file $hp_file --gta
 # python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights --unbatched # -i "THAT IS REFLECTED IN DEFINITE AND COMPREHENSIVE OPERATING PROCEDURES."
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights
 # python gen_wavernn.py --hp_file $hp_file -s 3 --unbatched --gta
+# python gen_wavernn.py --hp_file $hp_file -s 3 --gta
 
 # gold init / tf big BS
 hp_file=scripts/hparams_initGold_tuneBS.py
 # python train_tacotron.py --hp_file $hp_file
 # python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+# voc_weights=${EXP_DIR}/checkpoints/lj_pretrainGold.wavernn/wave_step450K_weights.pyt
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights --batched
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_tfnv100hz --batched
 # python gen_tacotron.py --hp_file $hp_file --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
 
 
@@ -103,9 +125,78 @@ hp_file=scripts/hparams_af_online_kl_tune.py
 # tune batch size and lr
 hp_file=scripts/hparams_af_online_tuneBS.py
 # python train_tacotron.py --hp_file $hp_file
+# python train_tacotron.py --hp_file $hp_file --force_af_online
+# python train_wavernn.py --hp_file $hp_file --gta
+# python train_wavernn.py --hp_file $hp_file
 # python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_afnv100hz --batched
 # python gen_tacotron.py --hp_file $hp_file --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+# python gen_wavernn.py --hp_file $hp_file -s 3 --gta
 
+hp_file=scripts/hparams_100hz_afnv.py
+# python train_wavernn.py --hp_file $hp_file --gta
+
+# ------------------------------------------------- ss
+
+hp_file=scripts/hparams_ss_initGold_tuneBS.py
+# python train_tacotron.py --hp_file $hp_file
+python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched --use_standard_names
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_gold --batched
+# python gen_tacotron.py --hp_file $hp_file --save_gv --skip_wav wavernn --voc_weights $voc_weights_gold --batched
+
+
+# ------------------------------------------------- 200hz
+hp_file=scripts/hparams_200hz_asnv.py
+# python train_wavernn.py --hp_file $hp_file
+# file=/home/dawna/tts/qd212/models/WaveRNN/data-200hz/gta_lj_v250t250_200hz_af_bs100_stepD2_initAF100hz/LJ050-0029.npy
+# python gen_wavernn.py --hp_file $hp_file --custom_files --voc_weights $voc_weights_asnv200hz
+
+hp_file=scripts/hparams_200hz_tf.py
+# python train_tacotron.py --hp_file $hp_file
+# python train_tacotron.py --hp_file $hp_file --force_gta
+# python gen_tacotron.py --hp_file $hp_file --save_attention --save_mel --skip_wav --use_standard_names griffinlim
+# python gen_tacotron.py --hp_file $hp_file --save_attention --save_mel griffinlim
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_tfnv200hz --batched --use_standard_names
+# tts_weights=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_bs100_stepD5.tacotron/taco_step270K_weights.pyt
+# python gen_tacotron.py --hp_file $hp_file --tts_weights $tts_weights wavernn --voc_weights $voc_weights_asnv200hz --batched
+# python gen_tacotron_tf.py --hp_file $hp_file --tts_weights $tts_weights wavernn --voc_weights $voc_weights_asnv200hz --batched
+# tts_weights=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_bs100_stepD5.tacotron/taco_step400K_weights.pyt
+# python gen_tacotron.py --hp_file $hp_file --tts_weights $tts_weights wavernn --voc_weights $voc_weights_asnv200hz --batched --use_standard_names
+# python train_wavernn.py --hp_file $hp_file --gta
+
+hp_file=scripts/hparams_200hz_af.py
+# python train_tacotron.py --hp_file $hp_file
+# python train_tacotron.py --hp_file $hp_file --force_af_online
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_asnv200hz --batched
+tts_weights=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_af_bs100_stepD2_initAF100hz.tacotron/taco_step160K_weights.pyt
+# python gen_tacotron.py --hp_file $hp_file --tts_weights $tts_weights wavernn --voc_weights $voc_weights_asnv200hz --batched --use_standard_names
+# voc_weights=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_af_bs100_stepD2_initAF100hz.wavernn/wave_step450K_weights.pyt
+# voc_weights=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_af_bs100_stepD2_initAF100hz_tuneNV.wavernn/wave_step375K_weights.pyt
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights --batched
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights --batched --use_standard_names
+# python gen_tacotron.py --hp_file $hp_file --tts_weights $tts_weights wavernn --voc_weights $voc_weights_tfnv200hz --batched --use_standard_names
+# python train_wavernn.py --hp_file $hp_file --gta
+
+hp_file=scripts/hparams_200hz_af_v2.py
+# python train_wavernn.py --hp_file $hp_file --gta
+
+hp_file=scripts/hparams_200hz_af_v3.py
+# python train_wavernn.py --hp_file $hp_file --gta
+
+hp_file=scripts/hparams_200hz_af_dataAug.py
+# python train_wavernn.py --hp_file $hp_file --gtaNnat
+
+hp_file=scripts/hparams_200hz_af_dataAug_v2.py
+# python train_wavernn.py --hp_file $hp_file --gtaNnat
+
+hp_file=scripts/hparams_200hz_af_noDropout.py
+# python train_tacotron.py --hp_file $hp_file
+# python train_tacotron.py --hp_file $hp_file --force_af_online
+# python gen_tacotron.py --hp_file $hp_file wavernn --voc_weights $voc_weights_asnv200hz --batched
+tts_weights=/home/dawna/tts/qd212/models/WaveRNN/checkpoints/lj_v250t250_200hz_af_bs100_stepD2_initAF100hz_noDropout.tacotron/taco_step160K_weights.pyt
+# python gen_tacotron.py --hp_file $hp_file --tts_weights $tts_weights wavernn --voc_weights $voc_weights_tfnv200hz --batched --use_standard_names
+# python train_wavernn.py --hp_file $hp_file --gta
+# python train_wavernn.py --hp_file $hp_file --gta --grab_memory --gpu_id $CUDA_VISIBLE_DEVICES
 
 
 # ------------------------------------------------- multipass
@@ -173,7 +264,7 @@ hp_file=scripts/hparams_delib_pass2_xAOs1_attnAdv_smartKV.py
 # python gen_tacotron_multipass.py --hp_file $hp_file --save_attention --tts_weights_pass2 $tts_weights_pass2 wavernn --voc_weights $voc_weights_gold --batched
 
 hp_file=scripts/hparams_delib_pass2_xAOs1_attnAdv_smartKV_trainByGroup.py
-python train_tacotron_pass2.py --hp_file $hp_file
+# python train_tacotron_pass2.py --hp_file $hp_file
 # python gen_tacotron_multipass.py --hp_file $hp_file --save_attention wavernn --voc_weights $voc_weights_gold --batched
 
 

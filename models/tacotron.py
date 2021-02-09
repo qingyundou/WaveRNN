@@ -532,6 +532,114 @@ class Tacotron(nn.Module):
         return parameters
 
 
+# --------------------------------
+class Tacotron_ss(Tacotron):
+    def forward(self, x, m, generate_gta=False, attn_ref=None, p_tf=1.):
+        device = next(self.parameters()).device  # use same device as parameters
+
+        self.step += 1
+
+        if generate_gta:
+            self.eval()
+        else:
+            self.train()
+
+        batch_size, _, steps  = m.size()
+
+        # Initialise all hidden states and pack into tuple
+        attn_hidden = torch.zeros(batch_size, self.decoder_dims, device=device)
+        rnn1_hidden = torch.zeros(batch_size, self.lstm_dims, device=device)
+        rnn2_hidden = torch.zeros(batch_size, self.lstm_dims, device=device)
+        hidden_states = (attn_hidden, rnn1_hidden, rnn2_hidden)
+
+        # Initialise all lstm cell states and pack into tuple
+        rnn1_cell = torch.zeros(batch_size, self.lstm_dims, device=device)
+        rnn2_cell = torch.zeros(batch_size, self.lstm_dims, device=device)
+        cell_states = (rnn1_cell, rnn2_cell)
+
+        # <GO> Frame for start of decoder loop
+        go_frame = torch.zeros(batch_size, self.n_mels, device=device)
+
+        # Need an initial context vector
+        context_vec = torch.zeros(batch_size, self.decoder_dims, device=device)
+
+        # Project the encoder outputs to avoid
+        # unnecessary matmuls in the decoder loop
+        encoder_seq = self.encoder(x)
+        encoder_seq_proj = self.encoder_proj(encoder_seq)
+
+        mel_outputs, attn_scores = self.decoder_loop(steps, m, go_frame, encoder_seq, encoder_seq_proj, hidden_states, cell_states, context_vec, attn_ref=attn_ref, p_tf=p_tf)
+
+        # Concat the mel outputs into sequence
+        mel_outputs = torch.cat(mel_outputs, dim=2)
+
+        # Post-Process for Linear Spectrograms
+        postnet_out = self.postnet(mel_outputs)
+        linear = self.post_proj(postnet_out)
+        linear = linear.transpose(1, 2)
+
+        # For easy visualisation
+        attn_scores = torch.cat(attn_scores, 1)
+        # attn_scores = attn_scores.cpu().data.numpy()
+
+        return mel_outputs, linear, attn_scores
+
+    def decoder_loop(self, steps, m, go_frame, encoder_seq, encoder_seq_proj, hidden_states, cell_states, context_vec, attn_ref=None, p_tf=1.):
+        # Need a couple of lists for outputs
+        mel_outputs, attn_scores = [], []
+
+        # Run the decoder loop
+        if self.mode=='teacher_forcing':
+            for t in range(0, steps, self.r):
+                prenet_in = m[:, :, t - 1] if t > 0 else go_frame
+                mel_frames, scores, hidden_states, cell_states, context_vec = \
+                    self.decoder(encoder_seq, encoder_seq_proj, prenet_in,
+                                 hidden_states, cell_states, context_vec, t)
+                mel_outputs.append(mel_frames)
+                attn_scores.append(scores)
+
+        if self.mode=='scheduled_sampling':
+            for t in range(0, steps, self.r):
+                # prenet_in = m[:, :, t - 1] if t > 0 else go_frame
+                if t==0:
+                    prenet_in = go_frame
+                elif np.random.uniform(high=1.0) <= p_tf:
+                    prenet_in = m[:, :, t - 1]
+                else:
+                    prenet_in = mel_outputs[-1][:, :, -1]
+                mel_frames, scores, hidden_states, cell_states, context_vec = \
+                    self.decoder(encoder_seq, encoder_seq_proj, prenet_in,
+                                 hidden_states, cell_states, context_vec, t)
+                mel_outputs.append(mel_frames)
+                attn_scores.append(scores)
+
+        elif self.mode in ['attention_forcing_online', 'attention_forcing_offline']:
+            assert attn_ref is not None, 'in attention_forcing mode, but attn_ref is None'
+            for t in range(0, steps, self.r):
+                prenet_in = mel_outputs[-1][:, :, -1] if t > 0 else go_frame
+                mel_frames, scores, hidden_states, cell_states, context_vec = \
+                    self.decoder(encoder_seq, encoder_seq_proj, prenet_in,
+                                 hidden_states, cell_states, context_vec, t, attn_ref=attn_ref[:, t//self.r,:].unsqueeze(1))
+                mel_outputs.append(mel_frames)
+                attn_scores.append(scores)
+
+        elif self.mode=='free_running':
+            device = next(self.parameters()).device
+            # mask = torch.ones([m.size(0)], device=device)
+
+            for t in range(0, steps, self.r):
+                prenet_in = mel_outputs[-1][:, :, -1] if t > 0 else go_frame
+                mel_frames, scores, hidden_states, cell_states, context_vec = \
+                self.decoder(encoder_seq, encoder_seq_proj, prenet_in,
+                             hidden_states, cell_states, context_vec, t)
+                mel_outputs.append(mel_frames)
+                attn_scores.append(scores)
+                # Stop the loop if silent frames present
+                if (mel_frames < self.stop_threshold).all() and t > 10: break
+                # import pdb; pdb.set_trace()
+
+        return mel_outputs, attn_scores
+
 
 # --------------------------------
 class Tacotron_pass1(Tacotron):

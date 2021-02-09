@@ -2,7 +2,7 @@ from utils.dataset import get_vocoder_datasets
 from utils.dsp import *
 from models.fatchord_version import WaveRNN
 from utils.paths import Paths
-from utils.display import simple_table
+from utils.display import simple_table, save_spectrogram
 import torch
 import argparse
 from pathlib import Path
@@ -65,6 +65,38 @@ def gen_from_file(model: WaveRNN, load_path: Path, save_path: Path, batched, tar
     _ = model.generate(mel, save_str, batched, target, overlap, hp.mu_law)
 
 
+def gen_from_file_lst(model: WaveRNN, load_path_lst: [Path], save_path: Path, batched, target, overlap):
+    for load_path in load_path_lst:
+
+        k = model.get_step() // 1000
+        file_name = load_path.stem
+
+        suffix = load_path.suffix
+        if suffix == ".wav":
+            wav = load_wav(load_path)
+            save_wav(wav, save_path/f'__{file_name}__{k}k_steps_target.wav')
+            mel = melspectrogram(wav)
+        elif suffix == ".npy":
+            mel = np.load(load_path)
+            if mel.ndim != 2 or mel.shape[0] != hp.num_mels:
+                raise ValueError(f'Expected a numpy array shaped (n_mels, n_hops), but got {wav.shape}!')
+            _max = np.max(mel)
+            _min = np.min(mel)
+            if _max >= 1.01 or _min <= -0.01:
+                print(f'WARNING: Expected spectrogram range in [0,1] but was instead [{_min}, {_max}]')
+        else:
+            raise ValueError(f"Expected an extension of .wav or .npy, but got {suffix}!")
+
+        batch_str = f'gen_batched_target{target}_overlap{overlap}' if batched else 'gen_NOT_BATCHED'
+        save_str = save_path/f'__{file_name}__{k}k_steps_{batch_str}.wav'
+
+        # np.clip(mel, 0, 1, out=mel)
+        save_spectrogram(mel, str(save_str), 600)
+        mel = torch.tensor(mel).unsqueeze(0)
+
+        _ = model.generate(mel, save_str, batched, target, overlap, hp.mu_law)
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Generate WaveRNN Samples')
@@ -76,6 +108,7 @@ if __name__ == "__main__":
     parser.add_argument('--file', '-f', type=str, help='[string/path] for testing a wav outside dataset')
     parser.add_argument('--voc_weights', '-w', type=str, help='[string/path] Load in different WaveRNN weights')
     parser.add_argument('--gta', '-g', dest='gta', action='store_true', help='Generate from GTA testset')
+    parser.add_argument('--custom_files', action='store_true', help='Generate from custom files defined in hp')
     parser.add_argument('--force_cpu', '-c', action='store_true', help='Forces CPU-only training, even when in CUDA capable environment')
     parser.add_argument('--hp_file', metavar='FILE', default='hparams.py', help='The file to use for the hyperparameters')
 
@@ -100,6 +133,7 @@ if __name__ == "__main__":
     overlap = args.overlap
     file = args.file
     gta = args.gta
+    custom_files = args.custom_files
 
     if not args.force_cpu and torch.cuda.is_available():
         device = torch.device('cuda')
@@ -132,7 +166,11 @@ if __name__ == "__main__":
                   ('Target Samples', target if batched else 'N/A'),
                   ('Overlap Samples', overlap if batched else 'N/A')])
 
-    if gta:
+    if custom_files:
+        test_features_base = Path(hp.test_features_base)
+        file_lst = [test_features_base / f'{n}.npy' for n in hp.test_features_names]
+        save_path = paths.voc_output / test_features_base.stem
+    elif gta:
         save_path = paths.voc_output / 'gta'
     else:
         save_path = paths.voc_output / 'natural'
@@ -140,11 +178,13 @@ if __name__ == "__main__":
     print(f'Saving to {save_path}')
     # import pdb; pdb.set_trace()
 
-    if file:
+    if custom_files:
+        gen_from_file_lst(model, file_lst, save_path, batched, target, overlap)
+    elif file:
         file = Path(file).expanduser()
         gen_from_file(model, file, save_path, batched, target, overlap)
     else:
-        _, test_set = get_vocoder_datasets(paths.data, 1, gta)
+        _, test_set = get_vocoder_datasets(paths.data, 1, gta, voc_model_id=hp.voc_model_id)
         gen_testset(model, test_set, samples, batched, target, overlap, save_path)
 
     print('\n\nExiting...\n')

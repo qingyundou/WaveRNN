@@ -4,15 +4,17 @@ import torch
 from torch import optim
 import torch.nn.functional as F
 from utils.display import stream, simple_table
-from utils.dataset import get_vocoder_datasets
+from utils.dataset import get_vocoder_datasets, get_vocoder_datasets_gtaNnat
 from utils.distribution import discretized_mix_logistic_loss
 from utils import hparams as hp
 from models.fatchord_version import WaveRNN
 from gen_wavernn import gen_testset
 from utils.paths import Paths
 import argparse
-from utils import data_parallel_workaround
+from utils import data_parallel_workaround, set_global_seeds, reserve_memory
 from utils.checkpoints import save_checkpoint, restore_checkpoint
+
+import torch.utils.data
 
 
 def main():
@@ -23,21 +25,27 @@ def main():
     parser.add_argument('--batch_size', '-b', type=int, help='[int] override hparams.py batch size')
     parser.add_argument('--force_train', '-f', action='store_true', help='Forces the model to train past total steps')
     parser.add_argument('--gta', '-g', action='store_true', help='train wavernn on GTA features')
+    parser.add_argument('--gtaNnat', action='store_true', help='train wavernn on GTA and natural features')
     parser.add_argument('--force_cpu', '-c', action='store_true', help='Forces CPU-only training, even when in CUDA capable environment')
     parser.add_argument('--hp_file', metavar='FILE', default='hparams.py', help='The file to use for the hyperparameters')
+    parser.add_argument('--grab_memory', action='store_true', help='GPU memory reservation')
+    parser.add_argument('--gpu_id', type=int, default=0, help='only used for memory reservation')
     args = parser.parse_args()
 
     hp.configure(args.hp_file)  # load hparams from file
+    hp.fix_compatibility()
     if args.lr is None:
         args.lr = hp.voc_lr
     if args.batch_size is None:
         args.batch_size = hp.voc_batch_size
 
+    set_global_seeds(hp.random_seed)
+
     paths = Paths(hp.data_path, hp.voc_model_id, hp.tts_model_id)
 
     batch_size = args.batch_size
     force_train = args.force_train
-    train_gta = args.gta
+    train_gta = args.gta or args.gtaNnat
     lr = args.lr
 
     if not args.force_cpu and torch.cuda.is_available():
@@ -47,6 +55,10 @@ def main():
     else:
         device = torch.device('cpu')
     print('Using device:', device)
+
+    if device == torch.device('cuda') and args.grab_memory:
+        reserve_memory(device_id=args.gpu_id)
+        print(f'Memory reservation applied to GPU {args.gpu_id}:')
 
     print('\nInitialising Model...\n')
 
@@ -77,7 +89,10 @@ def main():
 
     restore_checkpoint('voc', paths, voc_model, optimizer, create_if_missing=True, init_weights_path=hp.voc_init_weights_path)
 
-    train_set, test_set = get_vocoder_datasets(paths.data, batch_size, train_gta, hp.tts_model_id)
+    if args.gtaNnat:
+        train_set, test_set = get_vocoder_datasets_gtaNnat(paths.data, batch_size, train_gta, hp.tts_model_id, data_split=hp.tts_data_split)
+    else:
+        train_set, test_set = get_vocoder_datasets(paths.data, batch_size, train_gta, hp.tts_model_id, data_split=hp.tts_data_split)
 
     total_steps = 10_000_000 if force_train else hp.voc_total_steps
 
@@ -96,6 +111,8 @@ def main():
 
 
 def voc_train_loop(paths: Paths, model: WaveRNN, loss_func, optimizer, train_set, test_set, lr, total_steps):
+    # import pdb; pdb.set_trace()
+
     # Use same device as model parameters
     device = next(model.parameters()).device
 
@@ -125,6 +142,9 @@ def voc_train_loop(paths: Paths, model: WaveRNN, loss_func, optimizer, train_set
                 y = y.float()
 
             y = y.unsqueeze(-1)
+
+            # print(x.size(), m.size(), y.size(), y_hat.size())
+            # pdb.set_trace()
 
 
             loss = loss_func(y_hat, y)
